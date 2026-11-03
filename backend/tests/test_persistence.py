@@ -53,3 +53,13 @@ def test_endpoint_outputs_and_data_model_api():
     names = {t["table"] for t in model["tables"]}
     assert {"sc_suppliers", "pm_sensor_readings", "vq_inspections", "df_demand_history", "sc_what_if_runs"} <= names
     assert all(t["rows"] >= 0 for t in model["tables"])
+
+
+def test_run_history_before_first_run_and_supplier_routes():
+    from backend.main import app
+
+    c = TestClient(app)
+    assert c.get("/api/v1/data/runs/oc_alarm_triages").status_code == 200  # empty, not an error
+    assert c.get("/api/v1/supply-chain/suppliers/concentration").status_code == 200
+    assert c.get("/api/v1/supply-chain/suppliers/risks/evaluated").status_code == 200
+    assert c.get("/api/v1/supply-chain/suppliers/SUP-MICRO-01").status_code == 200

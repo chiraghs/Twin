@@ -117,15 +117,6 @@ async def list_suppliers(risk_level: Optional[str] = Query("All", description="F
     return local_supply_chain_repo.list_suppliers(risk_level=risk_level)
 
 
-@router.get("/suppliers/{supplier_id}", response_model=Supplier)
-async def get_supplier_details(supplier_id: str) -> Supplier:
-    """Retrieve detailed profile for a specific supplier."""
-    s = local_supply_chain_repo.get_supplier(supplier_id)
-    if not s:
-        raise HTTPException(status_code=404, detail=f"Supplier {supplier_id} not found")
-    return s
-
-
 @router.get("/suppliers/risks/evaluated")
 async def evaluate_supplier_risks() -> list[dict[str, Any]]:
     """Evaluates composite delivery, variance, and concentration risks across all suppliers."""
@@ -136,6 +127,16 @@ async def evaluate_supplier_risks() -> list[dict[str, Any]]:
 async def get_supplier_concentration() -> dict[str, Any]:
     """Calculates single-source component dependencies and concentration index."""
     return supply_chain_risk_engine.evaluate_supplier_concentration()
+
+
+# Declared after the static /suppliers/* routes so they are not captured as a supplier id.
+@router.get("/suppliers/{supplier_id}", response_model=Supplier)
+async def get_supplier_details(supplier_id: str) -> Supplier:
+    """Retrieve detailed profile for a specific supplier."""
+    s = local_supply_chain_repo.get_supplier(supplier_id)
+    if not s:
+        raise HTTPException(status_code=404, detail=f"Supplier {supplier_id} not found")
+    return s
 
 
 # ==============================================================================

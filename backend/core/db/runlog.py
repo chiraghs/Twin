@@ -17,12 +17,11 @@ class RunLog:
             columns={"subject_id": lambda d: d.get("subject_id"), "created_at": lambda d: d.get("created_at")},
             indexes=("subject_id", "created_at"), feature=feature))
         self._rows: Optional[PersistentList] = None
+        ensure_table(self.spec)  # the table exists (and shows in the data model) before the first run
 
     def _list(self) -> PersistentList:
         if self._rows is None:
-            ensure_table(self.spec)
-            self._rows = PersistentList(self.spec, load=False)
-            self._rows.extend([])  # keep empty in memory; reads go to SQLite
+            self._rows = PersistentList(self.spec, load=False)  # write-only handle; reads go to SQLite
         return self._rows
 
     def record(self, result: Any, subject_id: Optional[str] = None) -> Any:

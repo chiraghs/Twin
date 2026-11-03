@@ -7,7 +7,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Query
 
 from backend.core.db.connection import connection, db_path
-from backend.core.db.persistent import registry
+from backend.core.db.persistent import ensure_table, registry
 
 router = APIRouter(prefix="/data", tags=["Data & Persistence"])
 
@@ -24,6 +24,7 @@ async def data_model() -> dict[str, Any]:
     """Every backend table: feature, description, typed columns, indexes and row count."""
     tables = []
     for spec in sorted(registry().values(), key=lambda s: (s.feature, s.name)):
+        ensure_table(spec)
         cols = [r["name"] for r in connection().execute(f"PRAGMA table_info({spec.name})")]
         tables.append({"table": spec.name, "feature": spec.feature, "description": spec.description, "kind": spec.kind,
                        "columns": cols, "indexes": list(spec.indexes), "rows": _count(spec.name)})
@@ -42,6 +43,7 @@ async def run_history(table: str, limit: int = Query(20, ge=1, le=200), subject_
     spec = registry().get(table)
     if not spec or "subject_id" not in spec.columns:
         raise HTTPException(404, f"{table} is not a run-history table")
+    ensure_table(spec)
     where, args = ("WHERE subject_id = ?", (subject_id,)) if subject_id else ("", ())
     rows = connection().execute(f"SELECT data FROM {table} {where} ORDER BY created_at DESC LIMIT ?", (*args, limit)).fetchall()
     return [json.loads(r["data"]) for r in rows]
