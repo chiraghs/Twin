@@ -1,0 +1,313 @@
+@import "tailwindcss";
+
+/* ───────────────────────── Twin design tokens ─────────────────────────
+ * Dark (default) and light themes share one set of semantic tokens. Utilities
+ * reference the CSS variables, so switching `data-theme` on <html> re-themes
+ * every component. Status colours are reserved for state and always paired with
+ * an icon + label. Series colours are for identity only (Line A, B, C, slot 4),
+ * stepped per theme and validated for CVD separation on each card surface.
+ */
+@theme {
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: var(--font-mono-face), ui-monospace, "SF Mono", Menlo, monospace;
+
+  --color-canvas: #070b14;
+  --color-deep: #080d19;
+  --color-shell: #0a1020;
+  --color-surface: #111a2e;
+  --color-surface-2: #16213a;
+  --color-surface-3: #1c2a47;
+  --color-line: #1e2a44;
+  --color-line-strong: #2b3b5e;
+  --color-ink: #e6ebf5;
+  --color-ink-2: #a9b4c8;
+  --color-muted: #6f7d99;
+
+  --color-accent: #4c8dff;
+  --color-accent-strong: #2f74f0;
+  --color-accent-soft: #10224a;
+  --color-accent-ink: #9cc0ff;
+  --color-agent: #9085e9;
+  --color-agent-ink: #c4bdf7;
+
+  --color-healthy: #10b981;
+  --color-warning: #f59e0b;
+  --color-critical: #ef4444;
+  --color-offline: #64748b;
+  --color-maint: #818cf8;
+  --color-healthy-ink: #5ee0b0;
+  --color-warning-ink: #fbc561;
+  --color-critical-ink: #ff8a8a;
+  --color-offline-ink: #a6b1c4;
+  --color-maint-ink: #b4bcfb;
+
+  --color-series-1: #3987e5;
+  --color-series-2: #d95926;
+  --color-series-3: #199e70;
+  --color-series-4: #c98500;
+  --color-reference: #8a94a8;
+
+  --radius-card: 12px;
+  --shadow-card: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 8px 24px -12px rgba(0, 0, 0, 0.6);
+
+  --animate-pulse-ring: pulse-ring 1.8s cubic-bezier(0.2, 0.6, 0.35, 1) infinite;
+  --animate-fade-in: fade-in 0.25s ease-out both;
+  --animate-flow: flow 1.2s linear infinite;
+
+  @keyframes pulse-ring {
+    0% {
+      transform: scale(0.9);
+      opacity: 0.7;
+    }
+    80%,
+    100% {
+      transform: scale(2.1);
+      opacity: 0;
+    }
+  }
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  @keyframes flow {
+    to {
+      stroke-dashoffset: -16;
+    }
+  }
+}
+
+:root {
+  color-scheme: dark;
+  --minimap-mask: rgba(7, 11, 20, 0.7);
+  --grid-tint: rgba(148, 163, 184, 0.06);
+
+  /* Isometric twin */
+  --iso-floor: #0a1120;
+  --iso-floor-edge: #1e2a44;
+  --iso-grid: #131d33;
+  --iso-bay: #0e182c;
+  --iso-top: #3c5078;
+  --iso-right: #2b3c60;
+  --iso-left: #1f2d4a;
+  --iso-trim-top: #61779f;
+  --iso-trim-right: #4a5f86;
+  --iso-trim-left: #3a4d72;
+  --iso-dark: #070c18;
+  --iso-belt: #1b263f;
+  --iso-belt-side: #121b30;
+  --iso-edge: rgba(0, 0, 0, 0.35);
+  --iso-arm: #d3dcec;
+  --iso-arm-shadow: #1a2440;
+  --iso-label-bg: rgba(10, 16, 32, 0.9);
+  --iso-label-border: #2b3b5e;
+  --iso-label-ink: #e6ebf5;
+  --iso-label-muted: #8a97b3;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --color-canvas: #f3f5f9;
+  --color-deep: #eaeef5;
+  --color-shell: #ffffff;
+  --color-surface: #ffffff;
+  --color-surface-2: #f1f4f9;
+  --color-surface-3: #e3e8f0;
+  --color-line: #e2e7ef;
+  --color-line-strong: #cbd4e1;
+  --color-ink: #0f172a;
+  --color-ink-2: #334155;
+  --color-muted: #64748b;
+
+  --color-accent: #2563eb;
+  --color-accent-strong: #1d4ed8;
+  --color-accent-soft: #e7efff;
+  --color-accent-ink: #1d4ed8;
+  --color-agent: #6d5ae6;
+  --color-agent-ink: #5640d6;
+
+  --color-healthy-ink: #047857;
+  --color-warning-ink: #b45309;
+  --color-critical-ink: #c81e1e;
+  --color-offline-ink: #475569;
+  --color-maint-ink: #4338ca;
+
+  --color-series-1: #2a78d6;
+  --color-series-2: #eb6834;
+  --color-series-3: #1baf7a;
+  --color-series-4: #eda100;
+  --color-reference: #94a3b8;
+
+  --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.05), 0 8px 24px -14px rgba(15, 23, 42, 0.22);
+  --minimap-mask: rgba(243, 245, 249, 0.75);
+  --grid-tint: rgba(15, 23, 42, 0.05);
+
+  --iso-floor: #e8edf4;
+  --iso-floor-edge: #cbd4e1;
+  --iso-grid: #dbe2ec;
+  --iso-bay: #f8fafc;
+  --iso-top: #ffffff;
+  --iso-right: #d9e0ea;
+  --iso-left: #bcc7d6;
+  --iso-trim-top: #94a3b8;
+  --iso-trim-right: #7c8ba1;
+  --iso-trim-left: #64748b;
+  --iso-dark: #334155;
+  --iso-belt: #9aa8bb;
+  --iso-belt-side: #7f8ea4;
+  --iso-edge: rgba(15, 23, 42, 0.16);
+  --iso-arm: #f8fafc;
+  --iso-arm-shadow: #64748b;
+  --iso-label-bg: rgba(255, 255, 255, 0.94);
+  --iso-label-border: #cbd4e1;
+  --iso-label-ink: #0f172a;
+  --iso-label-muted: #64748b;
+}
+
+html,
+body {
+  background: var(--color-canvas);
+  color: var(--color-ink);
+}
+
+body {
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: "cv11", "ss01";
+  transition: background-color 200ms ease;
+}
+
+::selection {
+  background: color-mix(in oklab, var(--color-accent) 35%, transparent);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-line-strong) transparent;
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Hairline grid texture used on hero surfaces */
+.grid-bg {
+  background-image:
+    linear-gradient(var(--grid-tint) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-tint) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+
+/* React Flow theming */
+.react-flow {
+  --xy-background-color: transparent;
+  --xy-edge-stroke: var(--color-line-strong);
+  --xy-edge-stroke-width: 1.5;
+  --xy-handle-background-color: var(--color-line-strong);
+  --xy-handle-border-color: var(--color-surface);
+  --xy-minimap-background-color: var(--color-shell);
+  --xy-controls-button-background-color: var(--color-surface);
+  --xy-controls-button-background-color-hover: var(--color-surface-2);
+  --xy-controls-button-color: var(--color-ink-2);
+  --xy-controls-button-border-color: var(--color-line);
+  --xy-attribution-background-color: transparent;
+}
+.react-flow__controls {
+  border: 1px solid var(--color-line);
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: var(--shadow-card);
+}
+.react-flow__minimap {
+  border: 1px solid var(--color-line);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.react-flow__edge.animated path {
+  stroke-dasharray: 6 6;
+}
+.react-flow__attribution {
+  background: transparent !important;
+  opacity: 0.45;
+}
+.react-flow__attribution a {
+  color: var(--color-muted) !important;
+  font-size: 9px;
+}
+
+/* Recharts: recessive chrome */
+.recharts-cartesian-grid line {
+  stroke: var(--color-line);
+}
+.recharts-text {
+  fill: var(--color-muted);
+  font-size: 11px;
+}
+.recharts-tooltip-cursor {
+  fill: color-mix(in oklab, var(--color-muted) 10%, transparent);
+}
+
+/* Isometric twin animations */
+.iso-flow {
+  stroke-dasharray: 3 7;
+  animation: flow 0.9s linear infinite;
+}
+.iso-blink {
+  animation: iso-blink 1.4s ease-in-out infinite;
+}
+.iso-ping {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: pulse-ring 2.2s cubic-bezier(0.2, 0.6, 0.35, 1) infinite;
+}
+.iso-arm {
+  transform-box: fill-box;
+  transform-origin: 30% 100%;
+  animation: iso-arm 3.2s ease-in-out infinite alternate;
+}
+@keyframes iso-blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+@keyframes iso-arm {
+  from {
+    transform: rotate(-5deg);
+  }
+  to {
+    transform: rotate(6deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+/* Phones: a full-page notice before the demo (components/shell/mobile-notice.tsx). Shown on small
+   screens, or touch screens narrower than a laptop, until the visitor chooses to continue. */
+.mobile-gate {
+  display: none;
+}
+@media (max-width: 639px), (max-width: 899px) and (pointer: coarse) {
+  html:not([data-mobile-ok]) .mobile-gate {
+    display: flex;
+  }
+  html:not([data-mobile-ok]):has(.mobile-gate) body {
+    overflow: hidden;
+  }
+}

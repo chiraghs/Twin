@@ -1,0 +1,44 @@
+# Firebase App Hosting configuration for Twin AI.
+# Docs: https://firebase.google.com/docs/app-hosting/configure
+runConfig:
+  minInstances: 0
+  # Demo state lives in the instance (/tmp). One instance keeps every visitor on the same factory.
+  maxInstances: 1
+  concurrency: 80
+  cpu: 1
+  memoryMiB: 1024
+
+env:
+  - variable: NEXT_TELEMETRY_DISABLED
+    value: "1"
+    availability: [BUILD, RUNTIME]
+  - variable: TWIN_DATA_DIR
+    value: /tmp/twin
+    availability: [RUNTIME]
+  # Meta Model API (Muse Spark / Muse Wonder / Muse Image / SAM 3.1 / Muse Voice).
+  # Store the key in Secret Manager:  firebase apphosting:secrets:set twin-model-api-key
+  - variable: MODEL_API_KEY
+    secret: twin-model-api-key
+    availability: [RUNTIME]
+  - variable: META_MODEL
+    value: muse-spark-1.3
+    availability: [RUNTIME]
+  - variable: META_REASONING_MODEL
+    value: muse-wonder-1.0
+    availability: [RUNTIME]
+  # Integration settings changed in the UI (Integrations page) are saved to this private bucket, so
+  # they survive instance restarts. This backend's service account has roles/storage.objectAdmin on it.
+  - variable: TWIN_CONFIG_BUCKET
+    value: twin-ai-twin-config
+    availability: [RUNTIME]
+  # Admin passcode (Secret Manager) that unlocks camera sources and integration settings in the UI.
+  # Without it, admin changes are disabled on Cloud Run. Rotate with:
+  #   firebase apphosting:secrets:set twin-admin-key --project twin-ai
+  - variable: TWIN_ADMIN_KEY
+    secret: twin-admin-key
+    availability: [RUNTIME]
+  # The Python vision service (services/vision, private Cloud Run service) is configured from the UI:
+  # Integrations → Vision service. Or set it here as the deployment default:
+  # - variable: VISION_SERVICE_URL
+  #   value: https://twin-vision-566093229758.asia-southeast1.run.app
+  #   availability: [RUNTIME]

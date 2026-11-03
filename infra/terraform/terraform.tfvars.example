@@ -1,0 +1,3 @@
+project_id = "my-gcp-predictive-maintenance-proj"
+region     = "asia-southeast1"
+dataset_id = "predictive_maintenance"

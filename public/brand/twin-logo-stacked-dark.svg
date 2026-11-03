@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 427 284" width="427" height="284" role="img" aria-label="Twin AI"><title>Twin AI</title><g transform="translate(133.60 12.00)">
+  <defs>
+    <linearGradient id="sdark-tile" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#13234a"/><stop offset="1" stop-color="#0b1530"/></linearGradient>
+    <linearGradient id="sdark-t" gradientUnits="userSpaceOnUse" x1="40.00" y1="0" x2="120.00" y2="0"><stop offset="0" stop-color="#4c8dff"/><stop offset="1" stop-color="#8db6ff"/></linearGradient>
+    <radialGradient id="sdark-g1"><stop offset="0" stop-color="#10b981" stop-opacity=".55"/><stop offset="1" stop-color="#10b981" stop-opacity="0"/></radialGradient>
+    <radialGradient id="sdark-g2"><stop offset="0" stop-color="#9085e9" stop-opacity=".55"/><stop offset="1" stop-color="#9085e9" stop-opacity="0"/></radialGradient>
+  </defs>
+  <rect width="160.00" height="160.00" rx="35.00" fill="url(#sdark-tile)"/>
+  <rect x="1.88" y="1.88" width="156.25" height="156.25" rx="33.12" fill="none" stroke="#33497c" stroke-width="3.75"/>
+  <path d="M80.00 45.00V92.50" stroke="#4c8dff" stroke-width="15.00" stroke-linecap="round" fill="none"/>
+  <path d="M40.00 45.00H120.00" stroke="url(#sdark-t)" stroke-width="15.00" stroke-linecap="round" fill="none"/>
+  <path d="M80.00 92.50L52.50 115.00M80.00 92.50L107.50 115.00" stroke="#7d8bab" stroke-width="7.50" stroke-linecap="round" fill="none"/>
+  <circle cx="52.50" cy="117.50" r="25.00" fill="url(#sdark-g1)"/>
+  <circle cx="107.50" cy="117.50" r="25.00" fill="url(#sdark-g2)"/>
+  <path d="M68.75 117.50H91.25" stroke="#8db6ff" stroke-width="4.00" stroke-linecap="round" stroke-dasharray="0.25 7.50" fill="none"/>
+  <circle cx="52.50" cy="117.50" r="12.50" fill="#10b981"/>
+  <circle cx="107.50" cy="117.50" r="12.50" fill="#9085e9"/>
+</g><text x="213.5" y="258" text-anchor="middle" font-size="60" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-weight="700" letter-spacing="-1"><tspan fill="#ffffff">Twin</tspan><tspan fill="#6ea0ff" dx="14">AI</tspan></text></svg>

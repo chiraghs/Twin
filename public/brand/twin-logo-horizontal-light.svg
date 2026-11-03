@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 404 132" width="404" height="132" role="img" aria-label="Twin AI"><title>Twin AI</title><g transform="translate(6.00 6.00)">
+  <defs>
+    <linearGradient id="hlight-tile" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#13234a"/><stop offset="1" stop-color="#0b1530"/></linearGradient>
+    <linearGradient id="hlight-t" gradientUnits="userSpaceOnUse" x1="30.00" y1="0" x2="90.00" y2="0"><stop offset="0" stop-color="#4c8dff"/><stop offset="1" stop-color="#8db6ff"/></linearGradient>
+    <radialGradient id="hlight-g1"><stop offset="0" stop-color="#10b981" stop-opacity=".55"/><stop offset="1" stop-color="#10b981" stop-opacity="0"/></radialGradient>
+    <radialGradient id="hlight-g2"><stop offset="0" stop-color="#9085e9" stop-opacity=".55"/><stop offset="1" stop-color="#9085e9" stop-opacity="0"/></radialGradient>
+  </defs>
+  <rect width="120.00" height="120.00" rx="26.25" fill="url(#hlight-tile)"/>
+  <rect x="1.41" y="1.41" width="117.19" height="117.19" rx="24.84" fill="none" stroke="#33497c" stroke-width="2.81"/>
+  <path d="M60.00 33.75V69.38" stroke="#4c8dff" stroke-width="11.25" stroke-linecap="round" fill="none"/>
+  <path d="M30.00 33.75H90.00" stroke="url(#hlight-t)" stroke-width="11.25" stroke-linecap="round" fill="none"/>
+  <path d="M60.00 69.38L39.38 86.25M60.00 69.38L80.62 86.25" stroke="#7d8bab" stroke-width="5.62" stroke-linecap="round" fill="none"/>
+  <circle cx="39.38" cy="88.12" r="18.75" fill="url(#hlight-g1)"/>
+  <circle cx="80.62" cy="88.12" r="18.75" fill="url(#hlight-g2)"/>
+  <path d="M51.56 88.12H68.44" stroke="#8db6ff" stroke-width="3.00" stroke-linecap="round" stroke-dasharray="0.19 5.62" fill="none"/>
+  <circle cx="39.38" cy="88.12" r="9.38" fill="#10b981"/>
+  <circle cx="80.62" cy="88.12" r="9.38" fill="#9085e9"/>
+</g><text x="164" y="90" font-size="66" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-weight="700" letter-spacing="-1"><tspan fill="#0f172a">Twin</tspan><tspan fill="#2f6fed" dx="16">AI</tspan></text></svg>

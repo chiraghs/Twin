@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Twin AI"><title>Twin AI</title><g transform="translate(0.00 0.00)">
+  <defs>
+    <linearGradient id="m-tile" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#13234a"/><stop offset="1" stop-color="#0b1530"/></linearGradient>
+    <linearGradient id="m-t" gradientUnits="userSpaceOnUse" x1="16.00" y1="0" x2="48.00" y2="0"><stop offset="0" stop-color="#4c8dff"/><stop offset="1" stop-color="#8db6ff"/></linearGradient>
+    <radialGradient id="m-g1"><stop offset="0" stop-color="#10b981" stop-opacity=".55"/><stop offset="1" stop-color="#10b981" stop-opacity="0"/></radialGradient>
+    <radialGradient id="m-g2"><stop offset="0" stop-color="#9085e9" stop-opacity=".55"/><stop offset="1" stop-color="#9085e9" stop-opacity="0"/></radialGradient>
+  </defs>
+  <rect width="64.00" height="64.00" rx="14.00" fill="url(#m-tile)"/>
+  <rect x="0.75" y="0.75" width="62.50" height="62.50" rx="13.25" fill="none" stroke="#33497c" stroke-width="1.50"/>
+  <path d="M32.00 18.00V37.00" stroke="#4c8dff" stroke-width="6.00" stroke-linecap="round" fill="none"/>
+  <path d="M16.00 18.00H48.00" stroke="url(#m-t)" stroke-width="6.00" stroke-linecap="round" fill="none"/>
+  <path d="M32.00 37.00L21.00 46.00M32.00 37.00L43.00 46.00" stroke="#7d8bab" stroke-width="3.00" stroke-linecap="round" fill="none"/>
+  <circle cx="21.00" cy="47.00" r="10.00" fill="url(#m-g1)"/>
+  <circle cx="43.00" cy="47.00" r="10.00" fill="url(#m-g2)"/>
+  <path d="M27.50 47.00H36.50" stroke="#8db6ff" stroke-width="1.60" stroke-linecap="round" stroke-dasharray="0.10 3.00" fill="none"/>
+  <circle cx="21.00" cy="47.00" r="5.00" fill="#10b981"/>
+  <circle cx="43.00" cy="47.00" r="5.00" fill="#9085e9"/>
+</g></svg>

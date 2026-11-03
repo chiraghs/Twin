@@ -1,0 +1,31 @@
+[project]
+name = "twin-backend"
+version = "0.1.0"
+description = "Twin backend on Meta Model API - Predictive Maintenance, Visual Inspection, Optimization, Supply Chain, Demand Planning and Copilots"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "pydantic>=2.7.0",
+    "pydantic-settings>=2.2.0",
+    "fastapi>=0.111.0",
+    "uvicorn[standard]>=0.30.0",
+    "mcp>=1.0.0",
+    "numpy>=1.26.0",
+    "scipy>=1.13.0",
+    "httpx>=0.27.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.2.0",
+    "pytest-asyncio>=0.23.0",
+    "httpx>=0.27.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

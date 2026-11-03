@@ -1,0 +1,59 @@
+# ==============================================================================
+# Cloud Workflows: Automated Visual Optical Quality Inspection Pipeline
+# Orchestrates: image upload -> backend /quality/inspect (Muse Spark serial read -> OpenCV comparison
+# -> Muse Spark + SAM 3.1 defect detection -> IPC-A-610 rule engine -> Muse Spark advisory) -> lakehouse -> Pub/Sub
+# ==============================================================================
+
+main:
+  params: [event]
+  steps:
+    - init_variables:
+        assign:
+          - bucket: ${event.data.bucket}
+          - object_name: ${event.data.name}
+          - project_id: ${sys.get_env("GOOGLE_CLOUD_PROJECT_ID")}
+          - service_url: ${sys.get_env("VISUAL_QUALITY_SERVICE_URL")}
+          - defect_alert_topic: "projects/" + project_id + "/topics/quality-defect-alerts"
+
+    # Step 1: Call Cloud Run Visual Inspection Pipeline
+    - run_optical_inspection:
+        call: http.post
+        args:
+          url: ${service_url + "/quality/inspect"}
+          auth:
+            type: OIDC
+          query:
+            camera_id: "CAM_AOI_L1"
+            part_id: ${object_name}
+        result: inspection_response
+
+    # Step 2: Check Verdict and Branch
+    - evaluate_verdict:
+        switch:
+          - condition: ${inspection_response.body.verdict != "PASS"}
+            next: publish_defect_alert
+        next: log_pass_completion
+
+    # Step 3: Publish Real-Time Defect Alert via Pub/Sub
+    - publish_defect_alert:
+        call: googleapis.pubsub.v1.projects.topics.publish
+        args:
+          topic: ${defect_alert_topic}
+          body:
+            messages:
+              - data: ${base64.encode(json.encode(inspection_response.body))}
+                attributes:
+                  inspection_id: ${inspection_response.body.inspection_id}
+                  verdict: ${inspection_response.body.verdict}
+                  severity: "HIGH"
+        next: log_pass_completion
+
+    # Step 4: Completion
+    - log_pass_completion:
+        return:
+          status: "SUCCESS"
+          inspection_id: ${inspection_response.body.inspection_id}
+          verdict: ${inspection_response.body.verdict}
+          similarity_score: ${inspection_response.body.similarity_score_to_golden}
+          advisory_summary: ${inspection_response.body.advisory.summary}
+          detector: ${inspection_response.body.detector}

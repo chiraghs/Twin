@@ -1,0 +1,35 @@
+# dependencies
+node_modules/
+.venv/
+**/.venv/
+__pycache__/
+*.pyc
+
+# Next.js / build output
+.next/
+.next-dev/
+out/
+*.tsbuildinfo
+next-env.d.ts
+
+# runtime state
+.data/
+.data-dev/
+.data-*/
+data/
+
+# tests
+test-results/
+playwright-report/
+.pytest_cache/
+
+# secrets: only the *.example templates are committed
+.env
+.env.*
+!.env.example
+**/.env
+!**/.env.example
+
+# OS / editor
+.DS_Store
+*.log
