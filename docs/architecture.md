@@ -1,11 +1,12 @@
 # Twin AI: architecture and design
 
-**Version:** 14 Oct 2026, `main`. **Live:** https://twin--twin-ai.asia-southeast1.hosted.app
+**Version:** Nov 2026, `main`.
 
 Twin AI is an agentic digital twin for manufacturing. It mirrors a factory as a live model, finds problems early, simulates the alternatives, and proposes a plan that a person approves before anything changes. New users build their own twin from a drawing and a description. Operators can ask a multi-agent copilot about the plant, and external agents can use the same tools over MCP.
 
 This document explains how the system is put together and why. Related design documents:
 - [Twin Builder](twin-builder.md)
+- [Data model (SQLite)](data-model.md)
 - [Python services plan](python-services-plan.md)
 - [README](../README.md): setup and a walkthrough
 
@@ -33,15 +34,21 @@ flowchart LR
   user([Plant users<br/>operators, engineers, managers])
   ext([External agents<br/>Python Muse Spark agent,<br/>Claude Code, IDEs])
   meta[Meta Model API<br/>Muse Spark · Muse Wonder · SAM 3.1<br/>Muse Image · Muse Voice Transcribe]
-  subgraph GCP[Hosting · Cloud Run / Firebase App Hosting]
-    app[Twin web app<br/>Next.js on Firebase App Hosting<br/>Cloud Run · asia-southeast1]
-    vision[Vision service<br/>FastAPI + OpenCV<br/>Cloud Run · planned]
-    other[(BigQuery · Pub/Sub · Cloud Storage<br/>optional adapters)]
+  subgraph host[Twin deployment]
+    app[Twin web app<br/>Next.js 15 · UI + API + twin engine]
+    backend[Intelligence backend<br/>Python · FastAPI]
+    db[(SQLite · twin.db<br/>shared system of record)]
   end
+  vision[Vision service<br/>FastAPI + OpenCV · optional]
+  other[(BigQuery · Pub/Sub · Cloud Storage<br/>optional adapters)]
   plant[[Plant network · future<br/>cameras, PLCs, OPC UA, MQTT]]
   user -->|browser| app
   ext -->|MCP Streamable HTTP| app
   app -->|HTTPS, MODEL_API_KEY| meta
+  backend -->|HTTPS, MODEL_API_KEY| meta
+  app -->|/api/backend proxy| backend
+  app --- db
+  backend --- db
   app -->|ID token| vision
   app --- other
   plant -.->|edge gateway, read-only, planned| other
@@ -51,6 +58,7 @@ flowchart LR
 |---|---|
 | Plant user | The web app: command center, twin views, AI operations, what-if simulator, approvals, Visual Quality, Twin Builder, copilot |
 | External agent | `POST /api/mcp`: the same 12 deterministic tools the copilot uses |
+| Intelligence backend | Called by the web app (Intelligence Backend page) for maintenance, AOI, supply chain, demand planning and operations copilots; shares the SQLite database |
 | Meta Model API | Muse Wonder briefing text; Muse Spark for the multi-agent copilot, Twin Builder (reading drawings, cited web research, drafting, chat edits) and footage review; SAM 3.1 footprints and defect boxes; Muse Image floor plans and test photos; Muse Voice speech-to-twin |
 | Vision service (Python) | Deterministic OpenCV checks behind `POST /api/vision/inspect` |
 
@@ -64,37 +72,49 @@ flowchart TB
     ui[React 19 UI · Tailwind 4 · React Flow · Recharts · Zustand]
     domc[Domain engine, client copy<br/>instant what-if, validation, previews]
   end
-  subgraph apphosting[Firebase App Hosting → Cloud Run · max 1 instance]
-    routes[Next.js 15 route handlers · 46 endpoints]
+  subgraph apphosting[Web app · Next.js 15 · App Hosting / Cloud Run · max 1 instance]
+    routes[Next.js 15 route handlers · 50+ endpoints]
     doms[Domain engine, server copy]
-    store[(Factory state<br/>in-memory + JSON file in /tmp)]
-    adk[Copilot runtime<br/>Muse Spark function calling · in-memory sessions]
+    adk[Copilot runtime<br/>Muse Spark function calling · sessions in SQLite]
     mcp[MCP server<br/>@modelcontextprotocol/sdk 1.32.1]
+    proxy[/api/backend proxy<br/>allow-listed/]
   end
-  subgraph py[Python services]
-    vis[services/vision · FastAPI 0.143 · OpenCV 4.14<br/>Cloud Run, private]
+  subgraph be[Intelligence backend · Python 3.12+ · FastAPI]
+    feats[7 feature modules<br/>maintenance · AOI · supply chain · demand · production · waste · operations]
+    bedb[core/db · write-through collections,<br/>configs + history, run history]
+  end
+  db[(SQLite · .data/twin.db<br/>WAL · shared · 83 tables)]
+  meta[Meta Model API<br/>Muse Spark · Wonder · SAM 3.1 · Image · Voice]
+  subgraph py[Optional Python services]
+    vis[services/vision · FastAPI · OpenCV<br/>Cloud Run, private]
     pyagent[services/agents · Python agent on Muse Spark<br/>MCP client]
   end
-  ui -->|fetch / NDJSON streams| routes
-  routes --> doms --> store
+  ui -->|fetch / NDJSON streams · preferences| routes
+  routes --> doms
   routes --> adk --> doms
   routes --> mcp --> doms
+  doms -->|change-only writes| db
+  routes --> proxy -->|HTTP| feats --> bedb --> db
+  routes -->|HTTPS| meta
+  feats -->|HTTPS| meta
   routes -->|multipart + Google ID token| vis
   pyagent -->|MCP| mcp
-  routes -->|settings JSON| gcs[(Cloud Storage<br/>private config bucket)]
+  routes -->|settings mirror, optional| gcs[(Cloud Storage<br/>private config bucket)]
   routes -->|admin passcode| sm[(Secret Manager)]
 ```
 
 | Unit | Tech | Runs where | State |
 |---|---|---|---|
-| Web app (UI and API) | Next.js 15.5, React 19, TypeScript 5.9 | Firebase App Hosting (Cloud Run), `asia-southeast1`, 0–1 instances, 1 CPU, 1 GiB | One `FactoryState` in memory, written atomically to `/tmp/twin` |
+| Web app (UI and API) | Next.js 15.5, React 19, TypeScript 5.9 | Firebase App Hosting (Cloud Run), `asia-southeast1`, 0–1 instances, 1 CPU, 1 GiB; or `npm start` locally | Each plant's `FactoryState` cached in memory; system of record in SQLite (normalised tables, change-only writes) |
+| Intelligence backend | Python 3.12+, FastAPI, pydantic | Next to the web app (`npm run backend`, port 8000), called through `/api/backend/*` | SQLite (`pm_`, `vq_`, `sc_`, `df_`, `oc_` tables, `app_config`, run history) |
+| SQLite database | `node:sqlite` (web) and `sqlite3` (backend), WAL | `.data/twin.db` (`TWIN_DB_PATH` / `TWIN_DATA_DIR`) | System of record for both services ([data model](data-model.md)) |
 | Domain engine | Pure TypeScript (`src/domain`, ≈ 8,900 lines) | Server, and in the browser for instant what-if and validation | None (functions over state) |
-| Copilot | Native multi-agent runtime (`src/server/copilot/agent.ts`) on Muse Spark (Meta Model API) | Inside the web app | In-memory sessions |
+| Copilot | Native multi-agent runtime (`src/server/copilot/agent.ts`) on Muse Spark (Meta Model API) | Inside the web app | Sessions in SQLite (`copilot_sessions`, `copilot_messages`, `copilot_evidence`) |
 | MCP server | `@modelcontextprotocol/sdk` 1.32.1, Streamable HTTP, stateless | Inside the web app at `/api/mcp` | None |
 | Vision service | Python 3.13, FastAPI, OpenCV, uv-locked | Cloud Run `twin-vision`, `asia-southeast1`, private (`--no-allow-unauthenticated`), 0–2 instances | None |
 | Python MCP agent | `mcp` client + Muse Spark (Responses API) | Local CLI | None |
 
-**Why one instance?** The demo keeps state in memory so every visitor sees the same factory. Two instances would diverge. Section 14 describes the move to a shared store.
+**Why one instance?** The SQLite file lives on the host (on serverless, in the instance's `/tmp`), and each instance would have its own copy. Section 14 describes the move to a server database.
 
 ---
 
@@ -247,7 +267,7 @@ flowchart TB
 - **Human in the loop.** `propose_plan` pauses the run: the runtime emits a `confirm` event, the UI shows a confirmation card, and the run resumes only with the user's answer (sent back to Muse Spark as the tool's output). Even then it only creates a *pending* recommendation.
 - **Transparency.** Every tool call, including the specialists' calls inside their own loops, streams to the UI as NDJSON. Each answer shows its tool trace.
 - **Grounding.** Figures in the answer are checked against the deterministic tool outputs of the whole conversation, within the precision stated. A specialist's own text doesn't count as a source. A difference between two tool figures is accepted but labelled *derived*. Anything else is flagged as not traced.
-- **Sessions.** In-memory conversation per browser session (Responses API input items), so follow-up questions work.
+- **Sessions.** One conversation per browser session (Responses API input items), stored in SQLite so follow-up questions work and survive restarts.
 - **Measured:** 8–23 s per answer, and confirmation turns take about 2 s. In tests, 19 of 19 figures were traced.
 
 ### 7.4 MCP server and the Python agent
@@ -360,19 +380,17 @@ The copilot runtime (`src/server/copilot/agent.ts`) drives the coordinator, spec
 ## 14. Persistence and scaling
 
 **Today:**
-- integration settings saved from the UI are durable (private Cloud Storage object), loaded at server start
-- one factory per deployment
-- state held in memory and in an atomic JSON file (on serverless, `/tmp`)
-- max 1 instance
-- the factory resets when Cloud Run recycles the instance
-- copilot sessions are in memory
+- one SQLite database (`.data/twin.db`, WAL) is the system of record for both services ([data model](data-model.md)): factory twins in normalised tables with change-only writes, integration settings with history, per-browser preferences and drafts, copilot sessions, the AI call log, and every intelligence-backend entity, configuration and run
+- multiple facilities (twins) per deployment, each a set of rows keyed by `facility_id` with cascading deletes
+- integration settings can also be mirrored to a private Cloud Storage object (`TWIN_CONFIG_BUCKET`) for serverless restarts
+- both services must share the database file (same host or volume); on serverless, max 1 instance and the database resets when the instance is recycled
 
 **Next step to production:**
-1. Move `FactoryState` to Firestore (one document tree per factory, transactions for `mutate`). `store.ts` is the only file that reads or writes state.
-2. Firebase Auth and per-factory access rules; multiple factories per tenant.
-3. Durable copilot sessions in a database (today they are in memory).
-4. Lift the instance cap and run the plant clock as a scheduled job (Cloud Scheduler), not per browser tick.
-5. Pub/Sub ingestion from the edge gateway for real telemetry (the adapter already exists).
+1. Move the same schema to a server database (Cloud SQL / PostgreSQL): the tables are plain SQL keyed by facility, and `src/server/db/*` and `backend/core/db/*` are the only code that talks to the database.
+2. Authentication and per-facility access rules; multiple tenants.
+3. Lift the instance cap and run the plant clock as a scheduled job, not per browser tick.
+4. Pub/Sub ingestion from the edge gateway for real telemetry (the adapter already exists).
+5. Link the intelligence backend's assets to the web twin's facilities (today they are two demo datasets in the same database).
 
 ---
 
@@ -397,7 +415,8 @@ The e2e suite runs against local production builds and against the live URL (`E2
 | AI access | `MODEL_API_KEY` from dev.meta.ai: `.env.local` locally; Secret Manager `twin-model-api-key` in deployment |
 | Health | `GET /api/health`; Integrations page with real connectivity tests |
 | Vision service | `gcloud run deploy twin-vision --source services/vision …` ([python-services-plan.md](python-services-plan.md), Phase 2). The App Hosting service account has `roles/run.invoker`; the URL is set on the Integrations page. |
-| Integration settings | Integrations page (admin). Saved to `gs://twin-ai-twin-config/twin/settings.json` (`TWIN_CONFIG_BUCKET`), loaded at server start (`src/instrumentation.ts`). |
+| Integration settings | Integrations page (admin). Saved to SQLite (`app_settings`, history in `app_settings_history`); optionally mirrored to `gs://…/twin/settings.json` (`TWIN_CONFIG_BUCKET`) and loaded at server start (`src/instrumentation.ts`). |
+| Intelligence backend | `npm run backend` (port 8000, `BACKEND_PORT` to change) next to the web app; its URL is set on the Integrations page (`INTELLIGENCE_BACKEND_URL`). Shares `.data/twin.db`. |
 | Admin passcode | Secret Manager `twin-admin-key`, mapped to `TWIN_ADMIN_KEY` in `apphosting.yaml`. Read it with `gcloud secrets versions access latest --secret twin-admin-key --project twin-ai`; rotate with `firebase apphosting:secrets:set twin-admin-key`. |
 | Python MCP agent | `cd services/agents && uv sync && uv run python ask.py "…"` |
 
@@ -407,7 +426,7 @@ The e2e suite runs against local production builds and against the live URL (`E2
 
 | Decision | Alternatives considered | Reason |
 |---|---|---|
-| One Next.js app owns state, API and the engine | Separate FastAPI backend | The engine runs in the browser too, for instant what-if; a second backend would duplicate it or add a network round trip per change |
+| The web app owns the twin engine; the Python backend owns the intelligence features; both share one SQLite database | Twin engine in Python too; a separate database per service | The twin engine runs in the browser too, for instant what-if, so it stays in TypeScript; the intelligence features use Python's data and ML stack. One shared database (WAL) keeps a single system of record without a sync layer |
 | Deterministic engine; LLMs only explain, extract and orchestrate | LLM agents that reason about numbers | Reproducibility and no invented figures; every number is testable |
 | Machine-archetype library + spec compiler for "any factory" | Full process-graph engine | Covers most discrete and packaging plants in days, not weeks, without rewriting the engine the demo depends on |
 | Native agent runtime on Muse Spark, inside the app | An agent framework in a separate service | Same process as the tools and state, so no extra service or latency, and no framework between Twin and Meta Model API. A separate Python agent still uses the twin over MCP, to prove interoperability. |

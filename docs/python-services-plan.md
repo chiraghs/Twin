@@ -28,7 +28,7 @@ Browser ──► Next.js on Firebase App Hosting (Cloud Run)
 
 ## Ground rules for every Python service
 
-1. **Stateless.** Python returns measurements; Next.js records them, owns state and writes the audit trail.
+1. **Stateless (vision service).** The vision service returns measurements; the web app records them and writes the audit trail. (The separate intelligence backend in `backend/` is stateful: it shares the SQLite database with the web app; see [data-model.md](data-model.md).)
 2. **Deterministic where claimed.** Fixed parameters, no randomness (RANSAC is seeded), and the engine version in every response. Tests assert that the same input gives the same output.
 3. **Advisory only.** Every result lands as *awaiting human review*. Nothing is accepted or rejected automatically, and nothing writes to a PLC. Connectors are read-only by design.
 4. **Honest status.** Each service appears on the Integrations page and shows *Connected* only after a real call succeeds.

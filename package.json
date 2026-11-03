@@ -2,7 +2,7 @@
   "name": "twin-ai",
   "version": "0.1.0",
   "private": true,
-  "description": "Twin AI — agentic industrial digital twin platform (hackathon MVP)",
+  "description": "Twin AI \u2014 agentic industrial digital twin platform (hackathon MVP)",
   "scripts": {
     "dev": "next dev -p 3000",
     "build": "next build",
@@ -11,7 +11,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
-    "reset-demo": "rm -rf .data"
+    "reset-demo": "rm -rf .data",
+    "backend": "PYTHONPATH=. .venv/bin/uvicorn backend.main:app --port ${BACKEND_PORT:-8000}",
+    "test:backend": ".venv/bin/python -m pytest backend/tests -q"
   },
   "engines": {
     "node": ">=20.9"

@@ -11,6 +11,9 @@ Built following strict **Domain-Driven Design (DDD)**, **Hexagonal Architecture 
 ```
 backend/
 ├── core/                         # Cross-cutting abstractions, interfaces, DI container, config, telemetry
+│   ├── db/                       # SQLite: declared tables, write-through collections, configs + history, run history
+│   ├── ai/                       # Meta Model API client (Muse Spark / Wonder, SAM 3.1, Muse Image), grounded narration
+│   └── api/                      # Data API: data model, run history, config history, AI activity
 ├── connectors/                   # Physical OT (OPC-UA, MQTT, Modbus) and IT (ERP, MES, TSDB) adapters
 ├── mcp/                          # Model Context Protocol servers, tools, resources, and prompts
 ├── rag/                          # Industrial Hybrid RAG & Knowledge Graph engine
@@ -24,6 +27,15 @@ backend/
     ├── waste_reduction/          # Scrap root-cause attribution, energy waste, GHG tracking
     └── operational_copilots/     # Shift-handover, SOP interactive guidance, alarm triage
 ```
+
+---
+
+## Runtime, persistence and AI
+
+- **Part of Twin.** The web app (Next.js) calls this backend through its `/api/backend/*` proxy and shows it on the **Intelligence Backend** page. Run it with `npm run backend` from the repository root (port 8000).
+- **SQLite system of record.** The backend shares `.data/twin.db` with the web app (WAL mode; `TWIN_DB_PATH` / `TWIN_DATA_DIR` to move it). Every repository attribute is a write-through collection bound to a declared table (`pm_*`, `vq_*`, `sc_*`, `df_*`, `oc_*`), feature configurations live in `app_config` with full history, and results of write endpoints are kept as run history. Demo data is seeded only into an empty database. Catalogue: [docs/data-model.md](../docs/data-model.md).
+- **Meta Model API only.** Muse Spark writes copilot answers and AOI classifications, SAM 3.1 localises defects, Muse Wonder writes what-if and S&OP briefs. Every answer is grounding-checked against the deterministic evidence, and every feature has a deterministic fallback when `MODEL_API_KEY` is not set. `GET /ai/status` and `GET /api/v1/data/ai-activity` show what ran.
+- **Tests.** `npm run test:backend` (pytest, isolated temporary database).
 
 ---
 

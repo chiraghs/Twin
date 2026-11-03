@@ -95,17 +95,17 @@ Tip — to run a dev server next to a running production build without them over
 
 ---
 
-### Run the Python intelligence backend (optional)
+### Run the intelligence backend (Python)
 
-The **Intelligence Backend** page (sidebar) shows the Python FastAPI backend: maintenance copilot, AOI inspection, supply chain, demand planning, operations copilots and their configuration. Start it next to the web app; both use the same SQLite database (`.data/twin.db`):
+Twin runs as two services that share one SQLite database (`.data/twin.db`): the web app above, and the **intelligence backend** (FastAPI), which serves the **Intelligence Backend** page: maintenance copilot, AOI inspection, supply chain, demand planning, operations copilots and their configuration. Start it in a second terminal:
 
 ```bash
 python -m venv .venv && .venv/bin/pip install fastapi "uvicorn[standard]" pydantic-settings numpy httpx python-multipart
-cp backend/.env.example backend/.env        # MODEL_API_KEY for the Muse models (optional)
-PYTHONPATH=. .venv/bin/uvicorn backend.main:app --port 8000
+cp backend/.env.example backend/.env   # set MODEL_API_KEY for the Muse models
+npm run backend                        # http://localhost:8000  (BACKEND_PORT=xxxx to change)
 ```
 
-If it runs elsewhere, set **Integrations → Intelligence backend → Service URL** (or `INTELLIGENCE_BACKEND_URL`). The browser only talks to the web app, which proxies allow-listed `/api/backend/*` calls.
+If it runs on another port or host, set **Integrations → Intelligence backend → Service URL** (or `INTELLIGENCE_BACKEND_URL`). The browser only talks to the web app, which proxies allow-listed `/api/backend/*` calls. If the backend is down, the rest of the app keeps working and the Intelligence Backend page says how to start it.
 
 ### Data & persistence
 
@@ -158,6 +158,8 @@ The fastest path is **Demo controls → Run Factory Crisis Demo** (top-right). I
 | Sustainability: energy per unit, by-line energy, idle waste, scrap, avoidable-waste estimates, scenario energy and waste | ✅ |
 | Audit trail: category filters, search, cross-links, JSON export | ✅ |
 | **Muse Wonder** writes the orchestrator's decision briefing (Muse Spark as fallback), with schema validation, timeout, numeric grounding check and deterministic fallback | ✅ needs `MODEL_API_KEY` |
+| **SQLite system of record** shared by both services: normalised twin tables with change-only writes, settings and configuration history, per-browser preferences and drafts, copilot conversations, AI call log, run history ([data model](docs/data-model.md)) | ✅ |
+| **Intelligence Backend page** (via `/api/backend` proxy): fleet risk, maintenance copilot in 7 languages, recommendation approval, AOI inspection with defect boxes and dispositions, supply-chain what-if and assistant, mitigation approval, S&OP brief, shift handover, alarm triage, editable feature configs with history, live data model | ✅ needs the backend running |
 | BigQuery, Pub/Sub, Cloud Storage and MQTT adapters with real connectivity tests | ✅ implemented; need configuration |
 | Dockerfile and Cloud Run deploy script | ✅ |
 
@@ -165,36 +167,48 @@ The fastest path is **Demo controls → Run Factory Crisis Demo** (top-right). I
 
 ## Architecture
 
-**Next.js 15 (App Router, TypeScript)** serves the UI and the JSON API, owns all state and runs the deterministic engine. An optional **Python vision service** (FastAPI + OpenCV, `services/vision`) handles machine-vision checks; it is stateless, and Next.js calls it server-to-server. The plan for Python services is in [docs/python-services-plan.md](docs/python-services-plan.md).
+Twin is two services and one database ([diagram](docs/architecture/twin-architecture.png), [data model](docs/data-model.md)):
+
+- **Web app — Next.js 15 (App Router, TypeScript).** Serves the UI and the `/api/*` JSON API and runs the deterministic plant engine, the six agents, the what-if simulator, the copilot, the Twin Builder and the MCP server. Proxies the browser's calls to the intelligence backend (`/api/backend/*`, allow-listed).
+- **Intelligence backend — Python 3.12+ / FastAPI (`backend/`).** Predictive maintenance, AOI inspection, supply chain intelligence, demand forecasting and S&OP planning, and operations copilots, each a hexagonal feature module.
+- **SQLite (`.data/twin.db`) — the system of record for both.** WAL mode lets both processes use the same file; each owns and migrates its tables (`schema_migrations`). No state lives only in the browser or in memory.
+- **Meta Model API.** Muse Spark, Muse Wonder, SAM 3.1, Muse Image and Muse Voice Transcribe, called by both services. Every call is logged in `ai_calls`.
+- **Optional:** the Python **vision service** (`services/vision`, FastAPI + OpenCV) for deterministic machine-vision checks, called server-to-server; BigQuery / Pub/Sub / Cloud Storage / MQTT adapters.
 
 ```
 Browser (React 19, Tailwind 4, React Flow, Recharts, Zustand)
- │  ▲  state mirror · live tick every 4 s · NDJSON agent stream
+ │  ▲  state mirror · live tick every 4 s · NDJSON streams · preferences synced to the server
  ▼  │
-Next.js Route Handlers (/api/*)            ← thin: validate (zod) → domain command → persist
+Next.js route handlers (/api/*)               ← validate (zod) → domain command → persist
  │
  ├── src/domain/   pure, isomorphic, unit-tested business logic
  │     world.ts        plant model (the physics) — shared by live twin AND simulator
  │     telemetry.ts    live advance, measured readings, trend estimation, incidents
  │     simulation.ts   scenario engine, calibration, metrics, scoring, ranking
- │     anomaly.ts      diagnostics & anomaly detection
- │     agents/*        maintenance · production · supply · energy · orchestrator · pipeline
+ │     agents/*        maintenance · production · supply · energy · quality · orchestrator · pipeline
  │     recommendations.ts, actions.ts (approve/reject/rollback), commands.ts, kpis.ts, seed.ts
  │
  ├── src/server/   server-only adapters
- │     store.ts        file-backed state (globalThis cache + atomic JSON write)
- │     ai/            Meta Model API: llm.ts (Muse Spark / Wonder, Responses API), meta-media.ts (SAM 3.1, Muse Image, Muse Voice), provider.ts (briefings + fallback)
- │     integrations/*  BigQuery · Pub/Sub · Cloud Storage · MQTT · vision service · honest status
+ │     db/             SQLite: normalised twin tables (change-only writes), settings + history,
+ │                     per-browser preferences, copilot sessions, AI call log, migrations
+ │     ai/             Meta Model API: llm.ts (Muse Spark / Wonder), meta-media.ts (SAM 3.1, Muse Image, Voice)
+ │     copilot/        multi-agent copilot on Muse Spark function calling
+ │     integrations/*  intelligence backend proxy · vision service · BigQuery · Pub/Sub · Cloud Storage · MQTT
  │
- ├── content/docs  local maintenance manuals (Cloud Storage fallback)
+ ├──► /api/backend/* ──► backend/ (Python, FastAPI)
+ │     core/db         SQLite layer: declared tables, write-through collections, configs + history, run history
+ │     core/ai         Meta Model API client, grounded narration (figure check + deterministic fallback)
+ │     features/*      predictive_maintenance · visual_quality_inspection · supply_chain_intelligence ·
+ │                     demand_forecasting · production_optimization · waste_reduction · operational_copilots
  │
- └──► services/vision (Python, optional)   FastAPI + OpenCV on Cloud Run, called with a Google ID token
-       golden-board comparison · barcode/QR reading · image quality · video stoppages
+ ├──► services/vision (Python, optional)   FastAPI + OpenCV, called with a Google ID token on Cloud Run
+ │
+ └──► SQLite .data/twin.db  ◄── shared by the web app and the intelligence backend (83 tables)
 ```
 
-**Single source of truth.** The server owns one `FactoryState` (see `src/domain/types.ts`): lines, assets, telemetry, production history, inventory, orders, work orders, directives, incidents, analyses, scenario runs, recommendations and audit. Every page renders from it. The simulator and dashboard forecast run the *same* domain code client-side on a snapshot, so what-if sliders respond instantly, and the server recomputes whenever a run is recorded.
+**Single source of truth.** Each plant twin is one `FactoryState` aggregate (`src/domain/types.ts`): lines, assets, telemetry, production history, inventory, orders, work orders, directives, incidents, analyses, scenario runs, recommendations and audit. The engine works on it in memory; SQLite is its system of record, one table per collection, and only changed rows are written. The simulator and dashboard forecast run the *same* domain code client-side on a snapshot, so what-if sliders respond instantly, and the server recomputes whenever a run is recorded.
 
-**Persistence.** State is written atomically to `.data/factory-state.json` (`TWIN_DATA_DIR` to change), so it survives navigation, refresh and server restarts. UI preferences (layers, node positions, simulator levers) are kept in `localStorage`.
+**Persistence.** Everything is in SQLite (`TWIN_DB_PATH` or `TWIN_DATA_DIR` to move it): factory twins, integration settings with change history, per-browser preferences and drafts (UI layout, simulator workbench, Twin Builder and Playground drafts, copilot view, theme), copilot conversations, every Meta Model API call, and all intelligence-backend entities, configurations and run history. `npm run reset-demo` deletes the database; the demo data is re-seeded on the next start. The full catalogue is in [docs/data-model.md](docs/data-model.md).
 
 ---
 
@@ -452,7 +466,7 @@ Sources are in `docs/architecture/src` (`python docs/architecture/src/build_diag
 
 The repo is configured for [Firebase App Hosting](https://firebase.google.com/docs/app-hosting) (Next.js on Cloud Run, managed by Firebase). The project needs the **Blaze** plan.
 
-- `apphosting.yaml`: runtime settings. **`maxInstances: 1`**, because demo state lives in the instance's `/tmp`.
+- `apphosting.yaml`: runtime settings. **`maxInstances: 1`**, because the SQLite database lives on the instance (`/tmp`); a multi-instance deployment needs a shared database (see Known limitations). App Hosting deploys the web app only; run the intelligence backend next to it (same host and database file) or point `INTELLIGENCE_BACKEND_URL` at it.
 - `.firebaserc` / `firebase.json`: default project `twin-ai`, backend `twin` (region `asia-southeast1`).
 
 Deploy the current local source:
@@ -474,7 +488,7 @@ export REGION=us-central1                 # optional
 ./infra/cloudrun/deploy.sh
 ```
 
-The script enables the required APIs and creates a least-privilege runtime service account with these roles: `secretmanager.secretAccessor` (for the Meta Model API key), `bigquery.dataEditor`, `bigquery.jobUser`, `pubsub.subscriber` and `storage.objectViewer`. It then builds from the `Dockerfile` (multi-stage, Node 22, standalone output) and deploys with **`--max-instances 1`**, because demo state lives in each instance.
+The script enables the required APIs and creates a least-privilege runtime service account with these roles: `secretmanager.secretAccessor` (for the Meta Model API key), `bigquery.dataEditor`, `bigquery.jobUser`, `pubsub.subscriber` and `storage.objectViewer`. It then builds from the `Dockerfile` (multi-stage, Node 22, standalone output) and deploys with **`--max-instances 1`**, because the SQLite database lives in the instance (deploys the web app; run the intelligence backend alongside it).
 
 > **Security note.** The script deploys a **public, unauthenticated** service so judges can open it. The app has no user authentication. Anyone with the URL can reset the demo or approve plans (simulated only). Remove `--allow-unauthenticated` or put the service behind IAP for anything beyond a demo.
 
@@ -490,12 +504,13 @@ docker run -p 8080:8080 twin-ai     # http://localhost:8080
 ## Testing
 
 ```bash
-npm test               # 117 Vitest tests
-npm run build && npm run test:e2e   # 16 Playwright tests against the production server
+npm test               # 132 Vitest tests (web app)
+npm run test:backend   # 75 pytest tests (intelligence backend)
+npm run build && npm run test:e2e   # 18 Playwright tests against the production server
 cd services/vision && uv run pytest # 16 pytest tests for the Python vision service
 ```
 
-- **Unit and integration tests** (`tests/`, 117 tests), including a check that the landing story's figures are engine-derived:
+- **Unit and integration tests** (`tests/`, 132 tests; `tests/db.test.ts` covers the SQLite data model: exact round-trips, change-only writes, typed queries, cascades, legacy import, preferences, copilot sessions and the AI call log), including a check that the landing story's figures are engine-derived:
   - seed reproducibility and entity counts
   - health and status rules, OLS and trend estimation, change-point detection
   - KPIs
@@ -562,7 +577,8 @@ tests/ e2e/            Vitest, Playwright, and Pytest suites
 - **Simulated plant.** All telemetry, production and costs come from a deterministic model with fictional demo data. Results are estimates, not validated forecasts.
 - **No real cameras in the demo.** Camera feeds are rendered from the twin, or play reference footage of other factories, which is labelled as such. Inspection results come from the plant model's scrap attribution, not a trained vision model, and are not derived from the footage. Real streams need a plant-side gateway (HLS / MP4 / MJPEG over HTTPS). Muse Spark footage review and SAM 3.1 localisation are advisory and unvalidated; run an attribute-agreement study before relying on them. Muse Image test photos are synthetic and labelled as such.
 - **No real equipment control.** Approval changes only the digital twin. The platform never writes to PLCs or commands machines; that would need a separately authenticated, authorized and safety-validated integration.
-- **Single tenant, per-instance state.** One factory per server, stored in a local JSON file. Cloud Run instances do not share state (hence max-instances 1), and state resets when an instance is recycled. A production version would use Firestore, Cloud SQL or BigQuery.
+- **Two demo datasets.** The intelligence backend has its own demo plants (Bangalore, Stuttgart, Detroit) and machines; they are not the same plant as the web app's twin. Both live in the same database but are not linked yet.
+- **One database file, one host.** Both services share one SQLite file, so they must run on the same machine (or share a volume), and a serverless deployment keeps it in the instance's `/tmp` (hence max-instances 1; state resets when the instance is recycled). Tables are keyed by facility and use plain SQL, so moving to a server database (Cloud SQL / PostgreSQL) is a driver change rather than a redesign.
 - **No per-user login.** Configuration changes (camera sources, integration settings) need the admin passcode; everything else is open to anyone with the URL.
 - **Mobile robots are simulated.** Fleets come from the Twin Builder spec (the demo plant has a derived kitting and pallet fleet); missions and trip rates follow the plant model; no fleet manager is connected (a VDA 5050 or vendor-API adapter would supply real positions). The 3D animation runs at real speed while the plant clock runs 30× faster.
 - **No automatic re-ordering in the demo plant.** Its parts without an open purchase order run out after about 55–61 hours of plant time (about 2 hours of an open tab after a reset), and the lines starve. Use **Reset Demo**, or add inventory rules in the Playground and apply them.
