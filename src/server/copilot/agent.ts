@@ -4,6 +4,9 @@ import { callTwinTool, TWIN_TOOLS, type TwinToolName } from "@/domain/tools/twin
 import { aiConfig, modelLabel, recordAiCall, recordAiError, recordAiSuccess, type AiConfig } from "@/server/ai/config";
 import { chatOnce, errorMessage, withRetry, type ChatMessage, type ChatTool } from "@/server/ai/llm";
 import { setting } from "@/server/settings";
+import { logAiCall } from "@/server/db/ai-log";
+import { loadSession, saveSession } from "@/server/db/copilot-repo";
+import { getState } from "@/server/store";
 import { serverToolStore } from "@/server/tools/store";
 import { objectSchema } from "./schema";
 import type { CopilotEvent } from "@/lib/contracts";
@@ -138,9 +141,11 @@ async function modelTurn(cfg: AiConfig, agent: AgentDef, messages: ChatMessage[]
   try {
     const r = await withRetry(() => chatOnce(cfg, { system: agent.instruction, messages, tools, maxOutputTokens: 4096, thinkingLow: true, timeoutMs: cfg.timeoutMs }));
     recordAiSuccess(Date.now() - started);
+    logAiCall(cfg.model, `copilot · ${agent.name}`, true, Date.now() - started, r.toolCalls.map((c) => c.name).join(", "));
     return r;
   } catch (e) {
     recordAiError(errorMessage(e));
+    logAiCall(cfg.model, `copilot · ${agent.name}`, false, Date.now() - started, errorMessage(e));
     throw e;
   }
 }
@@ -215,7 +220,9 @@ export async function* runCopilot(input: CopilotInput): AsyncGenerator<CopilotEv
   const all = sessions(cfg);
   let session = all.get(input.sessionId);
   if (!session) {
-    session = { messages: [], pending: null, evidence: [], busy: false };
+    // Conversations survive restarts: load the stored session (SQLite) before starting a new one.
+    const stored = loadSession(input.sessionId);
+    session = { messages: stored?.messages ?? [], pending: stored?.pending ?? null, evidence: stored?.evidence ?? [], busy: false };
     all.set(input.sessionId, session);
     if (all.size > 200) all.delete(all.keys().next().value!);
   }
@@ -260,6 +267,11 @@ export async function* runCopilot(input: CopilotInput): AsyncGenerator<CopilotEv
       if (s.messages.length > 60) s.messages.splice(0, s.messages.length - 60);
       if (s.evidence.length > 400) s.evidence.splice(0, s.evidence.length - 400);
       if (answer) emit({ type: "answer", text: answer, grounding: checkGrounding(answer, s.evidence) });
+      try {
+        saveSession(input.sessionId, { messages: s.messages, evidence: s.evidence, pending: s.pending }, { facilityId: getState().profile.id, model: cfg.model });
+      } catch {
+        /* persistence failure must not lose the answer */
+      }
     } catch (e) {
       emit({ type: "error", message: e instanceof Error ? e.message.slice(0, 400) : String(e) });
     } finally {

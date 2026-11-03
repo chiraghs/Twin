@@ -1,4 +1,5 @@
 """Configurable parameters for Supply Chain Intelligence domain."""
+from backend.core.db.config_store import PersistentConfig
 from pydantic import BaseModel, Field
 
 
@@ -10,15 +11,19 @@ class SupplyChainConfig(BaseModel):
 
 
 class SupplyConfigStore:
+    """Runtime configuration persisted in SQLite (app_config, every change in app_config_history)."""
+
     def __init__(self) -> None:
-        self._config = SupplyChainConfig()
+        self._store = PersistentConfig("supply_chain_intelligence", SupplyChainConfig)
 
     def get_config(self) -> SupplyChainConfig:
-        return self._config
+        return self._store.get()
 
-    def update_config(self, new_config: SupplyChainConfig) -> SupplyChainConfig:
-        self._config = new_config
-        return self._config
+    def update_config(self, new_config: SupplyChainConfig, updated_by: str | None = "api") -> SupplyChainConfig:
+        return self._store.put(new_config, updated_by)
+
+    def history(self, limit: int = 20) -> list[dict]:
+        return self._store.history(limit)
 
 
 supply_config_store = SupplyConfigStore()

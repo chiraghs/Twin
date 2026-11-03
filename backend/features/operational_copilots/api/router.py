@@ -13,6 +13,11 @@ from backend.features.operational_copilots.config.models import (
     copilot_config_store,
 )
 
+from backend.core.db.runlog import RunLog
+
+SHIFT_HANDOVERS = RunLog("oc_shift_handovers", "Shift handover reports with the Muse Spark briefing.", "operational_copilots")
+ALARM_TRIAGES = RunLog("oc_alarm_triages", "PLC alarm triage results grounded in the maintenance manuals.", "operational_copilots")
+
 router = APIRouter(prefix="/copilot", tags=["Operational Copilots"])
 
 _reader = InMemoryShiftLogReader()
@@ -28,13 +33,13 @@ async def get_sop_step(procedure_id: str, step_number: int) -> SOPStep:
 @router.get("/shift-handover/{line_id}", response_model=ShiftHandoverReport)
 async def get_shift_handover(line_id: str, shift_name: Optional[str] = None) -> ShiftHandoverReport:
     """Generate automated shift handover report."""
-    return await _service.generate_shift_handover(line_id, shift_name)
+    return SHIFT_HANDOVERS.record(await _service.generate_shift_handover(line_id, shift_name), subject_id=line_id)
 
 
 @router.get("/alarm-triage/{asset_id}/{alarm_code}", response_model=AlarmDiagnostic)
 async def triage_alarm(asset_id: str, alarm_code: str) -> AlarmDiagnostic:
     """Diagnose PLC/SCADA alarm code and retrieve OEM troubleshooting actions."""
-    return await _service.diagnose_alarm(asset_id, alarm_code)
+    return ALARM_TRIAGES.record(await _service.diagnose_alarm(asset_id, alarm_code), subject_id=asset_id)
 
 
 @router.get("/config", response_model=OperationalCopilotsConfig)

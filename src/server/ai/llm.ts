@@ -1,5 +1,6 @@
 import "server-only";
 import { aiCapabilities, aiConfig, metaApiKey, modelLabel, recordAiCall, recordAiError, recordAiSuccess, type AiConfig } from "./config";
+import { logAiCall } from "@/server/db/ai-log";
 
 /**
  * One way to call Meta's Muse models: the Meta Model API Responses endpoint
@@ -294,10 +295,12 @@ export async function llmGenerate(req: GenerateRequest): Promise<ChatResult & { 
     );
     const latencyMs = Date.now() - started;
     recordAiSuccess(latencyMs);
+    logAiCall(model, req.json?.name ?? (req.webSearch ? "web research" : "generate"), true, latencyMs);
     return { ...r, model: modelLabel(cfg, model), latencyMs };
   } catch (e) {
     const msg = errorMessage(e);
     if (!(e instanceof AiUnsupported)) recordAiError(msg);
+    logAiCall(model, req.json?.name ?? (req.webSearch ? "web research" : "generate"), false, Date.now() - started, msg);
     throw e instanceof AiUnsupported ? e : new Error(msg);
   }
 }

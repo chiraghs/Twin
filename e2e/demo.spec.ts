@@ -340,3 +340,27 @@ test("integrations can be configured from the UI and returned to the deployment 
   const after = (await reset.json()) as { integrations: { id: string; state: string }[] };
   expect(after.integrations.find((i) => i.id === "mqtt")!.state).toBe("not-configured");
 });
+
+test("Intelligence Backend page: live backend data, or clear guidance when the Python service is down; proxy is allow-listed", async ({ page, request }) => {
+  const blocked = await request.get("/api/backend/etc/passwd");
+  expect(blocked.status()).toBe(404);
+  const ready = await request.get("/api/backend/ready");
+  await page.goto("/intelligence", { waitUntil: "domcontentloaded" });
+  await expect(page.getByRole("heading", { name: "Intelligence Backend" })).toBeVisible();
+  if (ready.ok() && (await ready.json()).status === "READY") {
+    await expect(page.getByText("Data model (SQLite)")).toBeVisible();
+    await page.getByRole("tab", { name: /Configuration/ }).click();
+    await expect(page.getByText("Change history")).toBeVisible();
+  } else {
+    await expect(page.getByText("The intelligence backend isn't reachable")).toBeVisible();
+  }
+});
+
+test("browser preferences are stored on the server per client", async ({ request }) => {
+  const put = await request.put("/api/prefs/e2e-check", { data: { value: { hello: "twin" } } });
+  expect(put.ok()).toBeTruthy();
+  const got = (await (await request.get("/api/prefs/e2e-check")).json()) as { value: { hello: string } };
+  expect(got.value.hello).toBe("twin");
+  expect((await request.put("/api/prefs/Bad Name", { data: { value: 1 } })).status()).toBe(400);
+  await request.delete("/api/prefs/e2e-check");
+});

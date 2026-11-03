@@ -22,6 +22,10 @@ class RecommendationEngine:
 
     def __init__(self) -> None:
         self.recommendations: dict[str, FactMaintenanceRecommendation] = {}
+        from backend.core.db import bind_repository
+        from backend.features.predictive_maintenance.repositories.tables import RECOMMENDATIONS
+
+        bind_repository(self, {"recommendations": RECOMMENDATIONS})
 
     def generate_recommendations_for_fleet(self, fleet_status: list[dict[str, Any]]) -> list[FactMaintenanceRecommendation]:
         """Evaluates live machines, ranks them by CARI, and creates or updates advisory recommendations."""
@@ -140,6 +144,7 @@ class RecommendationEngine:
             rec.approved_by = approver_name
             rec.approved_at = datetime.now(timezone.utc)
             rec.cmms_work_order_created = f"WO-AUTO-{int(datetime.now(timezone.utc).timestamp())}"
+            self.recommendations.save(recommendation_id)
             return rec
         return None
 
@@ -150,6 +155,7 @@ class RecommendationEngine:
             rec.approval_status = ApprovalStatus.REJECTED
             rec.approved_by = approver_name
             rec.approved_at = datetime.now(timezone.utc)
+            self.recommendations.save(recommendation_id)
             return rec
         return None
 

@@ -40,7 +40,7 @@ export interface Integration {
 }
 
 export interface SettingsStorage {
-  kind: "cloud-storage" | "local-file";
+  kind: "cloud-storage" | "sqlite";
   where: string;
   ok: boolean;
   detail: string | null;

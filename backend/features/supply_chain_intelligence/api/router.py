@@ -86,6 +86,13 @@ from backend.features.supply_chain_intelligence.config.models import (
 from backend.features.supply_chain_intelligence.services.supply_service import SupplyChainService
 from backend.features.supply_chain_intelligence.adapters.in_memory_inventory import InMemoryERPReader
 
+from backend.core.db.runlog import RunLog
+
+WHAT_IF_RUNS = RunLog("sc_what_if_runs", "What-if disruption simulations with the Muse Wonder briefing.", "supply_chain_intelligence")
+IMPACT_TRACES = RunLog("sc_impact_traces", "End-to-end disruption impact traces (POs, shipments, lines, orders).", "supply_chain_intelligence")
+SIMULATION_RUNS = RunLog("sc_simulation_runs", "Network scenario simulations (demand surge, port closure…).", "supply_chain_intelligence")
+PO_RECOMMENDATIONS = RunLog("sc_po_recommendations", "Purchase-order recommendations awaiting procurement approval.", "supply_chain_intelligence")
+
 router = APIRouter(prefix="/supply-chain", tags=["Supply Chain Intelligence"])
 
 _legacy_reader = InMemoryERPReader()
@@ -228,7 +235,8 @@ async def chat_with_assistant(request: SupplyChainChatRequest) -> SupplyChainCha
 @router.post("/assistant/what-if", response_model=WhatIfSimulationResponse)
 async def simulate_what_if(request: WhatIfSimulationRequest) -> WhatIfSimulationResponse:
     """Simulates a hypothetical supply disruption scenario; Muse Wonder briefs the simulated impact."""
-    return await supply_chain_assistant_service.simulate_what_if_with_briefing(request)
+    result = await supply_chain_assistant_service.simulate_what_if_with_briefing(request)
+    return WHAT_IF_RUNS.record(result, subject_id=request.target_entity_id)
 
 
 # ==============================================================================
@@ -295,7 +303,7 @@ async def trace_disruption_impact(disruption_id: str) -> EndToEndImpactTrace:
     trace = multi_echelon_impact_analyzer.trace_disruption_impact(disruption_id)
     if not trace:
         raise HTTPException(status_code=404, detail=f"Disruption {disruption_id} not found")
-    return trace
+    return IMPACT_TRACES.record(trace, subject_id=disruption_id)
 
 
 @router.post("/simulation/run")
@@ -303,7 +311,7 @@ async def run_scenario_simulation(payload: dict[str, Any]) -> dict[str, Any]:
     """Executes multi-vector What-If stress test (DEMAND_SURGE, CORRIDOR_CHOKEPOINT, SUPPLIER_SHUTDOWN) with governed SIMULATED_SCENARIO provenance."""
     scenario_type = payload.get("scenario_type", "DEMAND_SURGE")
     parameters = payload.get("parameters", {})
-    return supply_chain_risk_engine.simulate_scenario(scenario_type=scenario_type, parameters=parameters)
+    return SIMULATION_RUNS.record(supply_chain_risk_engine.simulate_scenario(scenario_type=scenario_type, parameters=parameters), subject_id=scenario_type)
 
 
 # ==============================================================================
@@ -339,4 +347,4 @@ async def get_supplier_risk(supplier_id: str) -> SupplierRiskScore:
 @router.post("/recommend-po/{part_number}", response_model=PurchaseOrderRecommendation)
 async def recommend_po(part_number: str) -> PurchaseOrderRecommendation:
     """Generate dynamic replenishment purchase order recommendation."""
-    return await _legacy_service.generate_po_recommendation(part_number)
+    return PO_RECOMMENDATIONS.record(await _legacy_service.generate_po_recommendation(part_number), subject_id=part_number)

@@ -1,4 +1,5 @@
 """Configurable parameters for Production Optimization domain."""
+from backend.core.db.config_store import PersistentConfig
 from pydantic import BaseModel, Field
 
 
@@ -10,15 +11,19 @@ class ProductionOptimizationConfig(BaseModel):
 
 
 class ProductionConfigStore:
+    """Runtime configuration persisted in SQLite (app_config, every change in app_config_history)."""
+
     def __init__(self) -> None:
-        self._config = ProductionOptimizationConfig()
+        self._store = PersistentConfig("production_optimization", ProductionOptimizationConfig)
 
     def get_config(self) -> ProductionOptimizationConfig:
-        return self._config
+        return self._store.get()
 
-    def update_config(self, new_config: ProductionOptimizationConfig) -> ProductionOptimizationConfig:
-        self._config = new_config
-        return self._config
+    def update_config(self, new_config: ProductionOptimizationConfig, updated_by: str | None = "api") -> ProductionOptimizationConfig:
+        return self._store.put(new_config, updated_by)
+
+    def history(self, limit: int = 20) -> list[dict]:
+        return self._store.history(limit)
 
 
 production_config_store = ProductionConfigStore()

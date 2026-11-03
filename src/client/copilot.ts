@@ -2,6 +2,7 @@
 
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
+import { serverStorage } from "./server-storage";
 import type { CopilotEvent } from "@/lib/contracts";
 import { api } from "./api";
 import { useFactory } from "./store";
@@ -131,13 +132,7 @@ export const useCopilot = create<CopilotStore>()(
     },
     {
       name: "twin-copilot",
-      storage: createJSONStorage(() => {
-        try {
-          return localStorage;
-        } catch {
-          return undefined as unknown as Storage;
-        }
-      }),
+      storage: createJSONStorage(() => serverStorage),
       version: 1,
       partialize: (s) => ({ sessionId: s.sessionId, turns: s.turns.slice(-30).map((t) => ({ ...t, pending: false })) }),
       onRehydrateStorage: () => (s) => {

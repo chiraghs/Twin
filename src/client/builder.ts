@@ -2,6 +2,7 @@
 
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
+import { serverStorage } from "./server-storage";
 import type { BlueprintReading, ResearchResult } from "@/domain/builder/draft";
 import { applyOps, type SpecOp } from "@/domain/builder/ops";
 import type { BuilderEvent, BuilderStage } from "@/domain/builder/pipeline";
@@ -188,13 +189,7 @@ export const useBuilder = create<BuilderStore>()(
     }),
     {
       name: "twin-builder",
-      storage: createJSONStorage(() => {
-        try {
-          return localStorage;
-        } catch {
-          return undefined as unknown as Storage;
-        }
-      }),
+      storage: createJSONStorage(() => serverStorage),
       version: 1,
       // The blueprint file itself is never persisted (object URLs don't survive a reload).
       partialize: (s) => ({ input: s.input, phase: s.phase === "running" ? "start" : s.phase, stages: s.stages, reading: s.reading, research: s.research, spec: s.spec, mode: s.mode, validation: s.validation, chat: s.chat, blueprint: s.blueprint ? { ...s.blueprint, url: null } : null }),

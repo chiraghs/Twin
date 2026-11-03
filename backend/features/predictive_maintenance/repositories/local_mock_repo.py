@@ -16,7 +16,10 @@ class LocalMockMachineRepository(IMachineRepository):
         self.history: dict[str, list[SensorReadingEvent]] = {}
         self.predictions: dict[str, dict] = {}
         self.predictor = FailurePredictor(config_store=self.config_store)
-        self._seed_initial_history()
+        from backend.core.db import bind_repository
+        from backend.features.predictive_maintenance.repositories.tables import PREDICTIONS, READINGS
+
+        bind_repository(self, {"history": READINGS, "predictions": PREDICTIONS}, seed=self._seed_initial_history)
 
     def _seed_initial_history(self) -> None:
         """Seed each machine with 15 historical readings and generate initial predictions."""
@@ -76,7 +79,7 @@ class LocalMockMachineRepository(IMachineRepository):
 
     async def save_prediction(self, prediction_record: dict) -> None:
         m_id = prediction_record["machine_id"]
-        self.predictions[m_id] = prediction_record
+        self.predictions[m_id] = prediction_record  # persisted (pm_predictions)
 
     async def get_high_risk_machines(self) -> list[dict]:
         all_m = await self.get_all_machines()

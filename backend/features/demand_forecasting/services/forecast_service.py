@@ -46,7 +46,10 @@ class DemandForecastingService(IDemandForecastingUseCase):
         self.config_store = config_store or demand_config_store
         self.repo = repo or local_manufacturing_repo
         self.engine = engine or forecasting_engine
-        self._cached_forecasts: dict[str, DemandForecastResult] = {}
+        from backend.core.db import PersistentDict
+        from backend.features.demand_forecasting.repositories.tables import FORECAST_RUNS
+
+        self._cached_forecasts: dict[str, DemandForecastResult] = PersistentDict(FORECAST_RUNS)
 
     # ==========================================================================
     # Legacy Backward-Compatible Endpoints (Used by test_features.py)

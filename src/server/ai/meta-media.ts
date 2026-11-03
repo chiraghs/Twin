@@ -1,6 +1,7 @@
 import "server-only";
 import { aiConfig, META_MODELS, metaApiKey, recordAiCall, recordAiError, recordAiSuccess } from "./config";
 import { errorMessage, metaPost, withRetry } from "./llm";
+import { logAiCall } from "@/server/db/ai-log";
 
 /**
  * Meta Model API media models beyond chat:
@@ -55,15 +56,17 @@ function ensureOn() {
   return cfg;
 }
 
-async function tracked<T>(fn: () => Promise<T>): Promise<T> {
+async function tracked<T>(fn: () => Promise<T>, model: string, purpose: string): Promise<T> {
   const started = Date.now();
   recordAiCall();
   try {
     const r = await withRetry(fn);
     recordAiSuccess(Date.now() - started);
+    logAiCall(model, purpose, true, Date.now() - started);
     return r;
   } catch (e) {
     recordAiError(errorMessage(e));
+    logAiCall(model, purpose, false, Date.now() - started, errorMessage(e));
     throw new Error(errorMessage(e));
   }
 }
@@ -81,7 +84,7 @@ export async function segmentImage(image: { mimeType: string; data: string }, co
       timeoutMs,
     );
     return parseSamBoxes(responseText(data));
-  });
+  }, META_MODELS.segmentation, `segment '${concept.slice(0, 40)}'`);
 }
 
 /** Generate one image with Muse Image. Returns base64 data and its mime type. */
@@ -92,7 +95,7 @@ export async function generateImage(prompt: string, opts: { size?: string; forma
     const first = (data.data as { b64_json?: string }[] | undefined)?.[0];
     if (!first?.b64_json) throw new Error("Muse Image returned no image.");
     return { data: first.b64_json, mimeType: `image/${String(data.output_format ?? opts.format ?? "png")}` };
-  });
+  }, META_MODELS.image, "generate image");
 }
 
 /** Transcribe a WAV clip with Muse Voice Transcribe (push-to-talk). */
@@ -117,5 +120,5 @@ export async function transcribeWav(wav: Blob, timeoutMs = 60_000): Promise<stri
       .map((l) => l.replace(/^(?:[A-Z]|unknown):/, "").trim())
       .filter(Boolean)
       .join(" ");
-  });
+  }, META_MODELS.transcribe, "transcribe");
 }

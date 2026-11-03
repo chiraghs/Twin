@@ -81,7 +81,9 @@ describe("integration settings", () => {
 
     await s.updateSettings({ MQTT_BROKER_URL: null }, "Admin");
     expect(s.setting("MQTT_BROKER_URL")).toBe("mqtt://env-broker:1883");
-    expect(JSON.parse(fs.readFileSync(path.join(dir, "settings.json"), "utf8")).values).toEqual({});
+    const { db } = await import("@/server/db/connection");
+    expect(db().prepare("SELECT COUNT(*) AS n FROM app_settings WHERE key = 'MQTT_BROKER_URL'").get()).toEqual({ n: 0 });
+    expect(s.settingsHistory().filter((h) => h.key === "MQTT_BROKER_URL").map((h) => h.action)).toEqual(["reverted", "cleared", "set"]);
   });
 
   it("validates values and never returns secrets", async () => {

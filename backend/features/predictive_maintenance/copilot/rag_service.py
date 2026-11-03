@@ -50,7 +50,10 @@ class MaintenanceKnowledgeRAGService:
     def __init__(self) -> None:
         self.incident_index: list[dict[str, Any]] = []
         self.procedure_index: list[ApprovedProcedure] = []
-        self._seed_historical_knowledge_base()
+        from backend.core.db import bind_repository
+        from backend.features.predictive_maintenance.copilot.tables import INCIDENTS, PROCEDURES
+
+        bind_repository(self, {"incident_index": INCIDENTS, "procedure_index": PROCEDURES}, seed=self._seed_historical_knowledge_base)
 
     def _seed_historical_knowledge_base(self) -> None:
         """Seeds verified historical incidents and approved SOPs across machinery archetypes."""

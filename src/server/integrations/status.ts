@@ -8,6 +8,7 @@ import { mutate, persistenceInfo } from "@/server/store";
 import type { Recommendation, ScenarioRun } from "@/domain/types";
 import { bigQuery, cloudStorage, mqtt, pubSub } from "./adapters";
 import { testVisionService, visionService } from "./vision-service";
+import { intelligenceBackend, testIntelligenceBackend } from "./backend";
 
 export type IntegrationState = "active" | "active-simulated" | "not-configured" | "configured-untested" | "connected" | "error";
 
@@ -34,6 +35,7 @@ export const INTEGRATION_SETTINGS: Record<string, SettingKey[]> = {
   telemetry: ["TELEMETRY_SOURCE"],
   "meta-ai": ["AI_ENABLED", "MODEL_API_KEY", "META_MODEL", "META_REASONING_MODEL"],
   "vision-service": ["VISION_SERVICE_URL", "VISION_SERVICE_AUTH"],
+  "intelligence-backend": ["INTELLIGENCE_BACKEND_URL"],
   mcp: ["TWIN_MCP_ENABLED", "TWIN_MCP_TOKEN"],
   bigquery: ["BIGQUERY_DATASET"],
   pubsub: ["PUBSUB_TELEMETRY_SUBSCRIPTION"],
@@ -81,6 +83,7 @@ export function integrationStatuses(): IntegrationStatus[] {
   const gcs = stateFor("gcs", cloudStorage.configured());
   const mq = stateFor("mqtt", mqtt.configured());
   const vs = stateFor("vision-service", visionService.configured());
+  const ib = stateFor("intelligence-backend", intelligenceBackend.configured());
   const persistence = persistenceInfo();
   const store = settingsStorage();
   const onCloudRun = isCloudRun();
@@ -123,6 +126,18 @@ export function integrationStatuses(): IntegrationStatus[] {
       fallback: "Station-log review.",
       lastCheckedAt: vs.at,
       testable: visionService.configured(),
+    },
+    {
+      id: "intelligence-backend",
+      name: "Intelligence backend (Python · FastAPI)",
+      service: "FastAPI · SQLite · Meta Model API",
+      purpose: "Predictive maintenance copilot, AOI inspection (Muse Spark + SAM 3.1), supply chain intelligence, demand planning and S&OP briefs, operations copilots. Shares the SQLite database.",
+      state: ib.state,
+      detail: ib.detail ?? (intelligenceBackend.configured() ? `${intelligenceBackend.url()} — run a connectivity test or open Intelligence Backend.` : "Not configured. Set its URL to use the Intelligence Backend pages."),
+      settings: settingsFor("intelligence-backend"),
+      fallback: "The web app's own twin, agents and copilot keep working.",
+      lastCheckedAt: ib.at,
+      testable: intelligenceBackend.configured(),
     },
     mcpStatus(),
     {
@@ -180,9 +195,9 @@ export function integrationStatuses(): IntegrationStatus[] {
       purpose: "Keeps factory state across refreshes and restarts.",
       state: persistence.lastWriteError || !store.ok ? "error" : "active-simulated",
       detail: [
-        "Factory state is kept on this server instance.",
+        `Factory twins, settings, preferences, copilot conversations and AI calls are stored in SQLite (${persistence.path}): ${persistence.totalFacilities} facilit${persistence.totalFacilities === 1 ? "y" : "ies"}, ${persistence.rows.assets ?? 0} assets, ${persistence.rows.telemetry_readings ?? 0} telemetry readings, ${persistence.rows.audit_entries ?? 0} audit entries for the active plant.`,
         persistence.lastWriteError ? `It could not be saved: ${persistence.lastWriteError}.` : "",
-        store.ok ? (store.kind === "cloud-storage" ? "Integration settings are saved to Cloud Storage." : "Integration settings are saved on this server.") : `Integration settings could not be read: ${store.detail ?? "unknown error"}.`,
+        store.ok ? (store.kind === "cloud-storage" ? "Integration settings are saved to Cloud Storage." : "Integration settings are saved in SQLite (app_settings, with change history).") : `Integration settings could not be read: ${store.detail ?? "unknown error"}.`,
       ]
         .filter(Boolean)
         .join(" "),
@@ -285,6 +300,8 @@ export async function testIntegration(id: string): Promise<Check> {
       case "vision-service":
         if (!visionService.configured()) return { ok: false, detail: "Not configured (VISION_SERVICE_URL)." };
         return testVisionService();
+      case "intelligence-backend":
+        return testIntelligenceBackend();
       default:
         return { ok: false, detail: `Integration ${id} has no connectivity test.` };
     }
@@ -298,7 +315,7 @@ export async function testIntegration(id: string): Promise<Check> {
   const check = { ...result, at };
   // Only record checks for configured integrations so unconfigured ones never appear "connected" or "error".
   const configured =
-    id === "meta-ai" ? aiConfig().provider !== "none" : id === "bigquery" ? bigQuery.configured() : id === "pubsub" ? pubSub.configured() : id === "gcs" ? cloudStorage.configured() : id === "mqtt" ? mqtt.configured() : id === "vision-service" ? visionService.configured() : false;
+    id === "meta-ai" ? aiConfig().provider !== "none" : id === "bigquery" ? bigQuery.configured() : id === "pubsub" ? pubSub.configured() : id === "gcs" ? cloudStorage.configured() : id === "mqtt" ? mqtt.configured() : id === "vision-service" ? visionService.configured() : id === "intelligence-backend" ? intelligenceBackend.configured() : false;
   if (configured) checks[id] = check;
   return check;
 }

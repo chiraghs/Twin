@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from typing import Any, Optional
 
 from backend.core.ai.meta import MetaAIError, MetaModelClient, meta_client, ungrounded_figures
+from backend.core.db.activity import log_interaction
 
 ANSWER_SCHEMA = {
     "type": "object",
@@ -70,6 +71,7 @@ async def grounded_answer(
         bad = ungrounded_figures(text + " " + " ".join(points), [evidence, question])
         if bad:
             raise MetaAIError(f"grounding check failed: {', '.join(bad[:3])} not in evidence")
+        log_interaction(purpose, question, text, model, "grounded", language=language)
         return NarrationResult(text, points, model, "Muse-written from the evidence; every figure traced to it.")
     except MetaAIError as e:
         return NarrationResult(fallback_markdown, [], "deterministic-template", f"{model} unavailable ({str(e)[:140]}); deterministic answer.")

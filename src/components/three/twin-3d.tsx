@@ -17,6 +17,7 @@ import { amrPaths } from "./amr-paths";
 import { useMaterials, type Quality } from "./materials";
 import { usePalette, type Palette } from "./palette";
 import { Amr3D, BayZone, Belt3D, Camera3D, Machine3D, P, Rack3D, Shell, STATUS_COLOR, Truck3D } from "./scene";import { MISSION } from "../ui/labels";
+import { savePref } from "@/client/server-storage";
 
 
 // Post-processing is downloaded only when High quality is on.
@@ -148,6 +149,7 @@ export function Twin3D({
     } catch {
       /* not remembered, still applied */
     }
+    savePref(QUALITY_KEY, q);
   };
   const [goal, setGoal] = useState<Goal>(null);
 

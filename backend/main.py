@@ -9,6 +9,7 @@ from backend.features.supply_chain_intelligence.api.router import router as supp
 from backend.features.demand_forecasting.api.router import router as demand_router
 from backend.features.waste_reduction.api.router import router as waste_router
 from backend.features.operational_copilots.api.router import router as copilot_router
+from backend.core.api.data_router import router as data_router
 
 tags_metadata = [
     {
@@ -68,6 +69,7 @@ app.include_router(supply_router, prefix="/api/v1")
 app.include_router(demand_router, prefix="/api/v1")
 app.include_router(waste_router, prefix="/api/v1")
 app.include_router(copilot_router, prefix="/api/v1")
+app.include_router(data_router, prefix="/api/v1")
 
 # Mount root machine endpoints for top-level access
 app.include_router(maint_root_router)
@@ -92,7 +94,7 @@ async def readiness_check() -> dict[str, Any]:
         "ready": True,
         "status": "READY",
         "app": settings.app_name,
-        "database": "Local in-memory repositories (BigQuery adapter optional)",
+        "database": f"SQLite ({__import__('backend.core.db', fromlist=['db_path']).db_path()})",
         "ai": "Meta Model API" if __import__("backend.core.ai", fromlist=["meta_client"]).meta_client.enabled else "Meta Model API not configured (deterministic mode)",
     }
 

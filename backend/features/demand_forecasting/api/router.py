@@ -92,6 +92,11 @@ from backend.features.demand_forecasting.services.scenario_service import what_i
 from backend.features.demand_forecasting.services.planning_brief_service import PlanningBrief, build_planning_brief
 from backend.features.demand_forecasting.pipelines.ingestion_service import data_ingestion_service
 
+from backend.core.db.runlog import RunLog
+
+PRODUCTION_PLANS = RunLog("df_production_plans", "Generated constraint-aware production plans.", "demand_forecasting")
+PLANNING_BRIEFS = RunLog("df_planning_briefs", "S&OP planning briefs (Muse Wonder, grounded).", "demand_forecasting")
+
 router = APIRouter(tags=["Demand Forecasting & Operations Planning"])
 
 
@@ -216,9 +221,8 @@ async def generate_production_plan(
     consider_maintenance: bool = Body(True),
 ) -> ProductionPlanSummary:
     """Trigger constraint-aware production plan generation considering capacity and maintenance."""
-    return production_planning_service.generate_plan(
-        plant_id=plant_id, horizon_days=horizon_days, consider_maintenance=consider_maintenance
-    )
+    plan = production_planning_service.generate_plan(plant_id=plant_id, horizon_days=horizon_days, consider_maintenance=consider_maintenance)
+    return PRODUCTION_PLANS.record(plan, subject_id=plant_id)
 
 
 @router.get("/production/brief", response_model=PlanningBrief)
@@ -227,7 +231,7 @@ async def get_planning_brief(
     horizon_days: int = Query(30, ge=7, le=120),
 ) -> PlanningBrief:
     """S&OP decision brief: deterministic plan, bottlenecks and stock-out risks, written up by Muse Wonder (grounded)."""
-    return await build_planning_brief(plant_id=plant_id, horizon_days=horizon_days)
+    return PLANNING_BRIEFS.record(await build_planning_brief(plant_id=plant_id, horizon_days=horizon_days), subject_id=plant_id)
 
 
 @router.get("/production/capacity", response_model=list[ProductionCapacityReport])

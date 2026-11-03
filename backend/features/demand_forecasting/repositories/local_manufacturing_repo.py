@@ -47,7 +47,11 @@ class LocalManufacturingRepository:
         self.quality_trends: list[QualityTrendRecord] = []
         self.model_registry: dict[str, ModelRegistryEntry] = {}
 
-        self._seed_data()
+        # SQLite is the system of record: load it, or seed the demo plant into an empty database.
+        from backend.core.db import bind_repository
+        from backend.features.demand_forecasting.repositories.tables import DF_TABLES
+
+        bind_repository(self, DF_TABLES, seed=self._seed_data)
 
     def _seed_data(self) -> None:
         # 1. Plants

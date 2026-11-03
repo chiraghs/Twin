@@ -1,7 +1,8 @@
 "use client";
 
 import { create } from "zustand";
-import { createJSONStorage, persist, type StateStorage } from "zustand/middleware";
+import { createJSONStorage, persist } from "zustand/middleware";
+import { serverStorage } from "./server-storage";
 import type { PipelineEvent } from "@/domain/agents/pipeline";
 import type { FaultInput } from "@/domain/commands";
 import type {
@@ -507,30 +508,6 @@ export const useFactory = create<FactoryStore>((set, get) => ({
 
 /* ───────────────────────────── UI preferences ───────────────────────────── */
 
-const safeStorage: StateStorage = {
-  getItem: (k) => {
-    try {
-      return localStorage.getItem(k);
-    } catch {
-      return null;
-    }
-  },
-  setItem: (k, v) => {
-    try {
-      localStorage.setItem(k, v);
-    } catch {
-      /* storage unavailable */
-    }
-  },
-  removeItem: (k) => {
-    try {
-      localStorage.removeItem(k);
-    } catch {
-      /* storage unavailable */
-    }
-  },
-};
-
 export interface Highlight {
   runId: string;
   scenarioId: string;
@@ -601,7 +578,7 @@ export const useUi = create<UiStore>()(
     }),
     {
       name: "twin-ui",
-      storage: createJSONStorage(() => safeStorage),
+      storage: createJSONStorage(() => serverStorage),
       version: 1,
       // Layers added in later releases default on for people with older saved preferences.
       merge: (persisted, current) => {
@@ -647,6 +624,6 @@ export const useWorkbench = create<WorkbenchStore>()(
         }),
       clear: () => set({ targetAssetId: null, defs: [], selectedId: "reroute", sourceRunId: null }),
     }),
-    { name: "twin-workbench", storage: createJSONStorage(() => safeStorage), version: 1 },
+    { name: "twin-workbench", storage: createJSONStorage(() => serverStorage), version: 1 },
   ),
 );

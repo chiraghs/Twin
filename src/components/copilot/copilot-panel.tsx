@@ -36,7 +36,7 @@ function inline(text: string): ReactNode[] {
   return out;
 }
 
-function Markdown({ text }: { text: string }) {
+export function Markdown({ text }: { text: string }) {
   const blocks: ReactNode[] = [];
   let list: string[] = [];
   const flush = () => {

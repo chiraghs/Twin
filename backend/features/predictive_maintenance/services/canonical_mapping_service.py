@@ -25,7 +25,10 @@ class CanonicalMappingService:
     def __init__(self) -> None:
         self.assets: dict[str, DimAsset] = {}
         self.bridge_mappings: dict[str, str] = {}  # f"{source_system}:{source_id}" -> canonical_asset_id
-        self._seed_default_enterprise_catalog()
+        from backend.core.db import bind_repository
+        from backend.features.predictive_maintenance.repositories.tables import ASSETS, SOURCE_MAPPINGS
+
+        bind_repository(self, {"assets": ASSETS, "bridge_mappings": SOURCE_MAPPINGS}, seed=self._seed_default_enterprise_catalog)
 
     def _seed_default_enterprise_catalog(self) -> None:
         """Seeds canonical 20-asset fleet across 3 plants with cross-system bridge mappings."""

@@ -53,6 +53,7 @@ const ICON: Record<string, typeof Cloud> = {
   persistence: HardDrive,
   "cloud-run": Cloud,
   "vision-service": ScanEye,
+  "intelligence-backend": Server,
   mcp: Network,
 };
 
@@ -68,7 +69,7 @@ function relevant(settings: SettingView[], provider?: string | null) {
 const SOURCE_LABEL: Record<SettingView["source"], string> = { ui: "set here", environment: "from deployment", unset: "not set" };
 
 /** Settings whose value switches an integration on; clearing them turns it off. */
-const SWITCHES = new Set(["VISION_SERVICE_URL", "BIGQUERY_DATASET", "PUBSUB_TELEMETRY_SUBSCRIPTION", "GCS_BUCKET", "MQTT_BROKER_URL"]);
+const SWITCHES = new Set(["VISION_SERVICE_URL", "INTELLIGENCE_BACKEND_URL", "BIGQUERY_DATASET", "PUBSUB_TELEMETRY_SUBSCRIPTION", "GCS_BUCKET", "MQTT_BROKER_URL"]);
 
 /** Pending edits: a string sets a value ("" turns it off), null returns it to the deployment value. */
 type Edits = Record<string, string | null>;

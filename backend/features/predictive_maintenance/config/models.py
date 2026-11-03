@@ -1,4 +1,5 @@
 """Configurable parameters for Predictive Maintenance domain."""
+from backend.core.db.config_store import PersistentConfig
 from pydantic import BaseModel, Field
 
 
@@ -26,17 +27,19 @@ class PredictiveMaintenanceConfig(BaseModel):
 
 
 class MaintenanceConfigStore:
-    """Thread-safe in-memory store for runtime configuration updates."""
+    """Runtime configuration persisted in SQLite (app_config, every change in app_config_history)."""
 
     def __init__(self) -> None:
-        self._config = PredictiveMaintenanceConfig()
+        self._store = PersistentConfig("predictive_maintenance", PredictiveMaintenanceConfig)
 
     def get_config(self) -> PredictiveMaintenanceConfig:
-        return self._config
+        return self._store.get()
 
-    def update_config(self, new_config: PredictiveMaintenanceConfig) -> PredictiveMaintenanceConfig:
-        self._config = new_config
-        return self._config
+    def update_config(self, new_config: PredictiveMaintenanceConfig, updated_by: str | None = "api") -> PredictiveMaintenanceConfig:
+        return self._store.put(new_config, updated_by)
+
+    def history(self, limit: int = 20) -> list[dict]:
+        return self._store.history(limit)
 
 
 # Singleton store instance for the feature

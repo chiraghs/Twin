@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Moon, Sun } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { loadPref, savePref } from "@/client/server-storage";
 
 import { THEME_KEY } from "./theme-boot";
 
@@ -15,6 +16,17 @@ export function useTheme(): [Theme, (t: Theme) => void] {
     setThemeState(document.documentElement.getAttribute("data-theme") === "light" ? "light" : "dark");
     const obs = new MutationObserver(() => setThemeState(document.documentElement.getAttribute("data-theme") === "light" ? "light" : "dark"));
     obs.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+    // The saved choice lives on the server (per browser); localStorage only avoids a flash on load.
+    void loadPref<Theme>(THEME_KEY).then((t) => {
+      if ((t === "light" || t === "dark") && t !== document.documentElement.getAttribute("data-theme")) {
+        document.documentElement.setAttribute("data-theme", t);
+        try {
+          localStorage.setItem(THEME_KEY, t);
+        } catch {
+          /* storage unavailable */
+        }
+      }
+    });
     return () => obs.disconnect();
   }, []);
   const setTheme = (t: Theme) => {
@@ -24,6 +36,7 @@ export function useTheme(): [Theme, (t: Theme) => void] {
     } catch {
       /* storage unavailable — theme still applies for this page view */
     }
+    savePref(THEME_KEY, t);
   };
   return [theme, setTheme];
 }

@@ -86,7 +86,7 @@ Open <http://localhost:3000> and click **Launch Factory Demo**.
 | `npm test` | Vitest unit/integration tests for the domain logic (40 tests) |
 | `npm run test:e2e` | Playwright end-to-end tests (starts `npm start` if no server is running; run `npm run build` first) |
 | `npm run typecheck` | TypeScript strict type check |
-| `npm run reset-demo` | Delete persisted state (`.data/`); the demo factory is re-seeded on next request |
+| `npm run reset-demo` | Delete the SQLite database (`.data/`); the demo factory and backend demo data are re-seeded on next start |
 
 The first Playwright run needs a browser: `npx playwright install chromium`.
 
@@ -94,6 +94,22 @@ Tip — to run a dev server next to a running production build without them over
 `NEXT_DIST_DIR=.next-dev TWIN_DATA_DIR=.data-dev npx next dev -p 3001` (then `E2E_PORT=3001 npm run test:e2e`).
 
 ---
+
+### Run the Python intelligence backend (optional)
+
+The **Intelligence Backend** page (sidebar) shows the Python FastAPI backend: maintenance copilot, AOI inspection, supply chain, demand planning, operations copilots and their configuration. Start it next to the web app; both use the same SQLite database (`.data/twin.db`):
+
+```bash
+python -m venv .venv && .venv/bin/pip install fastapi "uvicorn[standard]" pydantic-settings numpy httpx python-multipart
+cp backend/.env.example backend/.env        # MODEL_API_KEY for the Muse models (optional)
+PYTHONPATH=. .venv/bin/uvicorn backend.main:app --port 8000
+```
+
+If it runs elsewhere, set **Integrations → Intelligence backend → Service URL** (or `INTELLIGENCE_BACKEND_URL`). The browser only talks to the web app, which proxies allow-listed `/api/backend/*` calls.
+
+### Data & persistence
+
+Everything is stored in **one SQLite database** shared by both backends: the factory twins in normalised tables (assets, telemetry, incidents, scenario runs, recommendations, audit…), integration settings with change history, per-browser preferences and drafts, copilot conversations, every Meta Model API call, and all backend entities, configurations and run history. The full table catalogue and API → table map is in **[docs/data-model.md](docs/data-model.md)**.
 
 ## Judge walkthrough (5 minutes)
 

@@ -13,6 +13,7 @@ import {
   ScanEye,
   Shapes,
   Wand2,
+  Server,
 } from "lucide-react";
 
 export const NAV = [
@@ -33,6 +34,7 @@ export const NAV = [
       { href: "/agents", label: "AI Operations", icon: BrainCircuit },
       { href: "/simulator", label: "What-If Simulator", icon: FlaskConical },
       { href: "/approvals", label: "Approvals", icon: ClipboardCheck },
+      { href: "/intelligence", label: "Intelligence Backend", icon: Server },
     ],
   },
   {

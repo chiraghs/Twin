@@ -1,4 +1,5 @@
 """Configurable parameters for Operational Copilots domain."""
+from backend.core.db.config_store import PersistentConfig
 from pydantic import BaseModel, Field
 
 
@@ -10,15 +11,19 @@ class OperationalCopilotsConfig(BaseModel):
 
 
 class CopilotConfigStore:
+    """Runtime configuration persisted in SQLite (app_config, every change in app_config_history)."""
+
     def __init__(self) -> None:
-        self._config = OperationalCopilotsConfig()
+        self._store = PersistentConfig("operational_copilots", OperationalCopilotsConfig)
 
     def get_config(self) -> OperationalCopilotsConfig:
-        return self._config
+        return self._store.get()
 
-    def update_config(self, new_config: OperationalCopilotsConfig) -> OperationalCopilotsConfig:
-        self._config = new_config
-        return self._config
+    def update_config(self, new_config: OperationalCopilotsConfig, updated_by: str | None = "api") -> OperationalCopilotsConfig:
+        return self._store.put(new_config, updated_by)
+
+    def history(self, limit: int = 20) -> list[dict]:
+        return self._store.history(limit)
 
 
 copilot_config_store = CopilotConfigStore()

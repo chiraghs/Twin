@@ -1,4 +1,5 @@
 """Configurable parameters for Visual Quality Inspection domain."""
+from backend.core.db.config_store import PersistentConfig
 from pydantic import BaseModel, Field
 
 
@@ -10,15 +11,19 @@ class VisualQualityConfig(BaseModel):
 
 
 class QualityConfigStore:
+    """Runtime configuration persisted in SQLite (app_config, every change in app_config_history)."""
+
     def __init__(self) -> None:
-        self._config = VisualQualityConfig()
+        self._store = PersistentConfig("visual_quality_inspection", VisualQualityConfig)
 
     def get_config(self) -> VisualQualityConfig:
-        return self._config
+        return self._store.get()
 
-    def update_config(self, new_config: VisualQualityConfig) -> VisualQualityConfig:
-        self._config = new_config
-        return self._config
+    def update_config(self, new_config: VisualQualityConfig, updated_by: str | None = "api") -> VisualQualityConfig:
+        return self._store.put(new_config, updated_by)
+
+    def history(self, limit: int = 20) -> list[dict]:
+        return self._store.history(limit)
 
 
 quality_config_store = QualityConfigStore()

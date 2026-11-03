@@ -1,4 +1,4 @@
-"""In-memory store adapter for visual quality records, golden templates, and audit logs."""
+"""Inspection history store persisted in SQLite (vq_inspections, vq_defects, vq_golden_templates, vq_dispositions)."""
 from typing import Optional
 from datetime import datetime, timezone, timedelta
 from backend.features.visual_quality_inspection.ports.contracts import IInspectionHistoryStore
@@ -13,12 +13,27 @@ from backend.features.visual_quality_inspection.domain.models import (
 )
 
 
+def _defect_rows(r: InspectionResult) -> list[dict]:
+    return [
+        {**d.model_dump(mode="json"), "inspection_id": r.inspection_id, "finding_key": f"{r.inspection_id}:{d.finding_id or i}"}
+        for i, d in enumerate(r.defects)
+    ]
+
+
 class InMemoryInspectionStore(IInspectionHistoryStore):
     def __init__(self) -> None:
         self._history: list[InspectionResult] = []
         self._templates: dict[str, GoldenTemplate] = {}
         self._audit_trail: list[HumanDispositionRecord] = []
-        self._seed_default_data()
+        self._defects: list[dict] = []
+        from backend.core.db import bind_repository
+        from backend.features.visual_quality_inspection.adapters.tables import DEFECTS, DISPOSITIONS, INSPECTIONS, TEMPLATES
+
+        def seed() -> None:
+            self._seed_default_data()
+            self._defects = [d for r in self._history for d in _defect_rows(r)]
+
+        bind_repository(self, {"_history": INSPECTIONS, "_templates": TEMPLATES, "_audit_trail": DISPOSITIONS, "_defects": DEFECTS}, seed=seed)
 
     def _seed_default_data(self) -> None:
         """Seeds realistic historical SMT assembly inspection records with IPC-A-610 defects."""
@@ -106,6 +121,7 @@ class InMemoryInspectionStore(IInspectionHistoryStore):
 
     async def record_result(self, result: InspectionResult) -> None:
         self._history.append(result)
+        self._defects.extend(_defect_rows(result))
 
     async def get_recent_results(self, line_id: str, limit: int = 100) -> list[InspectionResult]:
         # Filter by line_id if present, else return recent
@@ -121,6 +137,7 @@ class InMemoryInspectionStore(IInspectionHistoryStore):
             if r.inspection_id == record.inspection_id:
                 r.verdict = record.final_verdict
                 r.human_disposition_status = record.action
+                self._history.save(r)
                 break
 
     async def get_disposition_audit_trail(self, limit: int = 50) -> list[HumanDispositionRecord]:

@@ -1,4 +1,5 @@
 """Configurable parameters for Demand Forecasting domain."""
+from backend.core.db.config_store import PersistentConfig
 from pydantic import BaseModel, Field
 
 
@@ -11,15 +12,19 @@ class DemandForecastingConfig(BaseModel):
 
 
 class DemandConfigStore:
+    """Runtime configuration persisted in SQLite (app_config, every change in app_config_history)."""
+
     def __init__(self) -> None:
-        self._config = DemandForecastingConfig()
+        self._store = PersistentConfig("demand_forecasting", DemandForecastingConfig)
 
     def get_config(self) -> DemandForecastingConfig:
-        return self._config
+        return self._store.get()
 
-    def update_config(self, new_config: DemandForecastingConfig) -> DemandForecastingConfig:
-        self._config = new_config
-        return self._config
+    def update_config(self, new_config: DemandForecastingConfig, updated_by: str | None = "api") -> DemandForecastingConfig:
+        return self._store.put(new_config, updated_by)
+
+    def history(self, limit: int = 20) -> list[dict]:
+        return self._store.history(limit)
 
 
 demand_config_store = DemandConfigStore()

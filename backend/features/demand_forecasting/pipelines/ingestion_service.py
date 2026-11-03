@@ -32,6 +32,13 @@ class DataIngestionPipelineService:
     def __init__(self, repository: Optional[LocalManufacturingRepository] = None) -> None:
         self.repo = repository or local_manufacturing_repo
         self.quarantine: list[dict[str, Any]] = []
+        self.batches: list[IngestBatchStatus] = []
+        from backend.core.db import bind_repository
+        from backend.features.demand_forecasting.repositories.tables import INGEST_BATCHES, PIPELINE_RUNS, QUARANTINE
+
+        bind_repository(self, {"pipeline_runs": PIPELINE_RUNS, "quarantine": QUARANTINE, "batches": INGEST_BATCHES}, seed=self._seed_pipeline_runs)
+
+    def _seed_pipeline_runs(self) -> None:
         self.pipeline_runs: list[PipelineRunStatus] = [
             PipelineRunStatus(
                 pipeline_id="PIPE-ERP-NIGHTLY",
@@ -122,7 +129,7 @@ class DataIngestionPipelineService:
 
         status = "SUCCESS" if quarantined == 0 else "COMPLETED_WITH_WARNINGS"
 
-        return IngestBatchStatus(
+        result = IngestBatchStatus(
             batch_id=batch_id,
             target_table=payload.target_table,
             records_received=len(records),
@@ -133,6 +140,8 @@ class DataIngestionPipelineService:
             error_summary=error_summary[:10],  # Top 10 errors
             timestamp=datetime.now(timezone.utc).isoformat(),
         )
+        self.batches.append(result)
+        return result
 
     def get_data_quality_report(self) -> DataQualityReport:
         total_ingested = len(self.repo.demand_history) + len(self.quarantine)

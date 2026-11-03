@@ -41,7 +41,7 @@ from backend.features.supply_chain_intelligence.schemas.ontology import (
 
 
 class LocalMockSupplyChainRepository:
-    """Zero-cloud runnable in-memory supply chain repository."""
+    """Supply chain repository persisted in SQLite (sc_* tables), seeded with the demo network once."""
 
     def __init__(self) -> None:
         self.suppliers: dict[str, Supplier] = {}
@@ -61,7 +61,11 @@ class LocalMockSupplyChainRepository:
         self.alternative_contracts: dict[str, AlternativeSupplierContract] = {}
         self.excess_inventory: dict[str, ExcessInventoryItem] = {}
 
-        self._seed_reproducible_data()
+        # SQLite is the system of record: load it, or seed the demo network into an empty database.
+        from backend.core.db import bind_repository
+        from backend.features.supply_chain_intelligence.repositories.tables import SC_TABLES
+
+        bind_repository(self, SC_TABLES, seed=self._seed_reproducible_data)
 
     def _seed_reproducible_data(self) -> None:
         """Seeds realistic supply chain network."""
@@ -945,10 +949,12 @@ class LocalMockSupplyChainRepository:
         if rec:
             rec.status = "APPROVED"
             rec.approved_by = approver
+            self.mitigations.save(recommendation_id)
             # Auto-resolve disruption if mitigation is approved
             dis = self.disruptions.get(rec.disruption_id)
             if dis:
                 dis.resolved = True
+                self.disruptions.save(rec.disruption_id)
         return rec
 
     def list_carriers(self) -> list[Carrier]:

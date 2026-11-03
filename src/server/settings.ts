@@ -1,16 +1,18 @@
 import "server-only";
 import fs from "node:fs";
 import path from "node:path";
-import { dataDir, displayPath, isServerless, writeFileAtomic } from "./runtime";
+import { db, dbPath, nowIso, transaction } from "./db/connection";
+import { dataDir, displayPath, isServerless } from "./runtime";
 
 /**
  * Integration settings that an admin can change in the UI.
  *
  * Each setting overrides the environment variable of the same name (apphosting.yaml / .env.local),
  * so a deployment works out of the box and the UI only changes what it needs to. Saved settings
- * are written to a private Cloud Storage object when TWIN_CONFIG_BUCKET is set (durable
- * across instance restarts), and always to a local JSON file. Secret values are write-only: they
- * are never returned to the browser or written to the audit trail.
+ * live in the SQLite tables `app_settings` (current values) and `app_settings_history` (every
+ * change, never a secret's value); with TWIN_CONFIG_BUCKET they are also mirrored to a private
+ * Cloud Storage object so they survive serverless instance restarts. Secret values are
+ * write-only: they are never returned to the browser or written to the audit trail.
  */
 
 type Option = { value: string; label: string };
@@ -81,6 +83,12 @@ export const SETTINGS = {
     help: "Model for the orchestrator's decision briefing (deeper reasoning). Falls back to the agent model if it fails.",
     placeholder: "muse-wonder-1.0",
     validate: pattern(/^[a-z0-9][a-z0-9.\-]{2,60}$/, "Use a model id such as muse-wonder-1.0"),
+  },
+  INTELLIGENCE_BACKEND_URL: {
+    label: "Service URL",
+    help: "Base URL of the Python intelligence backend (FastAPI: maintenance, AOI, supply chain, demand planning, copilots). http://localhost:8000 when running locally.",
+    placeholder: "http://localhost:8000",
+    validate: httpsUrl,
   },
   VISION_SERVICE_URL: {
     label: "Service URL",
@@ -212,7 +220,8 @@ const store: Store = (g.__twinSettings ??= {
 /** Other instances (or a rollout's new revision) pick up saved changes within this time. */
 const REFRESH_MS = 60_000;
 
-const FILE = path.join(dataDir(), "settings.json");
+/** Settings files written by earlier builds; imported into SQLite once. */
+const LEGACY_FILE = () => path.join(dataDir(), "settings.json");
 const OBJECT = "twin/settings.json";
 const bucket = () => process.env.TWIN_CONFIG_BUCKET || "";
 
@@ -225,10 +234,65 @@ function sanitise(raw: unknown): Persisted {
 
 function loadLocalSync() {
   try {
-    if (fs.existsSync(FILE)) store.data = sanitise(JSON.parse(fs.readFileSync(FILE, "utf8")));
+    const conn = db();
+    const rows = conn.prepare("SELECT key, value, updated_at, updated_by FROM app_settings").all() as { key: string; value: string; updated_at: string; updated_by: string | null }[];
+    if (!rows.length && fs.existsSync(LEGACY_FILE())) {
+      const legacy = sanitise(JSON.parse(fs.readFileSync(LEGACY_FILE(), "utf8")));
+      writeLocal(legacy, {}, legacy.updatedBy ?? "import");
+      fs.renameSync(LEGACY_FILE(), `${LEGACY_FILE()}.imported`);
+      store.data = legacy;
+      return;
+    }
+    const values: Partial<Record<SettingKey, string>> = {};
+    let updatedAt: string | null = null;
+    let updatedBy: string | null = null;
+    for (const r of rows) {
+      if (!isSettingKey(r.key)) continue;
+      values[r.key] = r.value;
+      if (!updatedAt || r.updated_at > updatedAt) {
+        updatedAt = r.updated_at;
+        updatedBy = r.updated_by;
+      }
+    }
+    store.data = { version: 1, values, updatedAt, updatedBy };
   } catch (e) {
-    console.warn("[settings] could not read local settings:", e);
+    console.warn("[settings] could not read settings from SQLite:", e);
   }
+}
+
+/** Write the saved settings to SQLite and record what changed (secrets as "set"/"cleared" only). */
+function writeLocal(next: Persisted, prev: Partial<Record<SettingKey, string>>, by: string) {
+  const conn = db();
+  const now = nowIso();
+  transaction(conn, () => {
+    const keys = new Set([...Object.keys(prev), ...Object.keys(next.values)]) as Set<SettingKey>;
+    for (const k of keys) {
+      const before = prev[k];
+      const after = next.values[k];
+      if (before === after) continue;
+      const secret = !!(SETTINGS[k] as SettingDef).secret;
+      if (after === undefined) {
+        conn.prepare("DELETE FROM app_settings WHERE key = ?").run(k);
+        conn.prepare("INSERT INTO app_settings_history (key, action, value, changed_at, changed_by) VALUES (?, 'reverted', NULL, ?, ?)").run(k, now, by);
+      } else {
+        conn
+          .prepare(
+            `INSERT INTO app_settings (key, value, is_secret, updated_at, updated_by) VALUES (?, ?, ?, ?, ?)
+             ON CONFLICT (key) DO UPDATE SET value = excluded.value, is_secret = excluded.is_secret, updated_at = excluded.updated_at, updated_by = excluded.updated_by`,
+          )
+          .run(k, after, secret ? 1 : 0, now, by);
+        const action = after === "" ? "cleared" : "set";
+        conn.prepare("INSERT INTO app_settings_history (key, action, value, changed_at, changed_by) VALUES (?, ?, ?, ?, ?)").run(k, action, secret ? null : after, now, by);
+      }
+    }
+  });
+}
+
+/** Change history of the integration settings (newest first). Secret values are never stored. */
+export function settingsHistory(limit = 100) {
+  return db()
+    .prepare("SELECT key, action, value, changed_at AS changedAt, changed_by AS changedBy FROM app_settings_history ORDER BY id DESC LIMIT ?")
+    .all(limit) as { key: string; action: string; value: string | null; changedAt: string; changedBy: string | null }[];
 }
 
 /** Read the saved settings from Cloud Storage once. Never throws; records the outcome in store.durable. */
@@ -327,10 +391,10 @@ export function describeSettings(keys: SettingKey[]): SettingView[] {
 export function settingsStorage() {
   if (bucket()) return { kind: "cloud-storage" as const, where: `gs://${bucket()}/${OBJECT}`, ok: store.durable?.ok ?? true, detail: store.durable?.detail ?? null, updatedAt: store.data.updatedAt, updatedBy: store.data.updatedBy };
   return {
-    kind: "local-file" as const,
-    where: displayPath(FILE),
+    kind: "sqlite" as const,
+    where: `${displayPath(dbPath())} · app_settings`,
     ok: true,
-    detail: isServerless() ? "Saved on this server instance only; set TWIN_CONFIG_BUCKET to keep settings across restarts." : null,
+    detail: isServerless() ? "Saved in SQLite on this server instance only; set TWIN_CONFIG_BUCKET to keep settings across restarts." : null,
     updatedAt: store.data.updatedAt,
     updatedBy: store.data.updatedBy,
   };
@@ -377,20 +441,22 @@ export async function updateSettings(changes: Record<string, string | null>, by:
   }
   if (issues.length) throw new SettingsError(issues);
   const before = Object.fromEntries(SETTING_KEYS.map((k) => [k, setting(k) ?? ""]));
+  const prevValues = { ...store.data.values };
   store.writes++;
   store.data = { version: 1, values: next, updatedAt: new Date().toISOString(), updatedBy: by };
   const changed = SETTING_KEYS.filter((k) => (setting(k) ?? "") !== before[k]);
-  await persist();
+  await persist(prevValues, by);
   return changed;
 }
 
-async function persist() {
+async function persist(prevValues: Partial<Record<SettingKey, string>>, by: string) {
   const snapshot = JSON.stringify(store.data);
+  const data = store.data;
   const write = async () => {
     try {
-      writeFileAtomic(FILE, snapshot, { mode: 0o600 });
+      writeLocal(data, prevValues, by);
     } catch (e) {
-      console.warn("[settings] could not write local settings:", e);
+      console.warn("[settings] could not write settings to SQLite:", e);
     }
     if (!bucket()) return;
     try {

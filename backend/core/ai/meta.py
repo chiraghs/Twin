@@ -165,8 +165,11 @@ class MetaModelClient:
         }
 
     def _record(self, model: str, purpose: str, started: float, ok: bool, detail: str = "") -> None:
-        self.calls.appendleft({"model": model, "purpose": purpose, "ok": ok, "ms": int((time.perf_counter() - started) * 1000),
-                               "detail": detail[:200]})
+        ms = int((time.perf_counter() - started) * 1000)
+        self.calls.appendleft({"model": model, "purpose": purpose, "ok": ok, "ms": ms, "detail": detail[:200]})
+        from backend.core.db.activity import log_ai_call
+
+        log_ai_call(model, purpose, ok, ms, detail)
 
     # ------------------------------------------------------------------ transport
     async def _post(self, path: str, body: dict[str, Any], timeout: Optional[float] = None) -> dict[str, Any]:

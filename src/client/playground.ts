@@ -2,6 +2,7 @@
 
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
+import { serverStorage } from "./server-storage";
 import { applyOps, type SpecOp } from "@/domain/builder/ops";
 import { TwinSpecSchema, type Prov, type TwinSpec } from "@/domain/builder/spec";
 import type { ValidationResult } from "@/domain/builder/validate";
@@ -115,13 +116,7 @@ export const usePlayground = create<PlaygroundStore>()(
     }),
     {
       name: "twin-playground",
-      storage: createJSONStorage(() => {
-        try {
-          return localStorage;
-        } catch {
-          return undefined as unknown as Storage;
-        }
-      }),
+      storage: createJSONStorage(() => serverStorage),
       version: 1,
       partialize: (s) => ({ spec: s.spec, source: s.source, dirty: s.dirty, chat: s.chat.slice(-20) }),
       // A draft saved by an older build is dropped rather than half-loaded.

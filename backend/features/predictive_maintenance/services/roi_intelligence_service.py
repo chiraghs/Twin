@@ -42,8 +42,11 @@ class RoiIntelligenceService:
 
     def __init__(self) -> None:
         self.ledger: list[FactRoiLedger] = []
-        self.platform_annual_cost_usd = 65000.0  # GCP Cloud Run, BigQuery, telemetry infra
-        self._seed_baseline_and_historical_ledger()
+        self.platform_annual_cost_usd = 65000.0  # hosting, data and Meta Model API usage
+        from backend.core.db import bind_repository
+        from backend.features.predictive_maintenance.repositories.tables import ROI_LEDGER
+
+        bind_repository(self, {"ledger": ROI_LEDGER}, seed=self._seed_baseline_and_historical_ledger)
 
     def _seed_baseline_and_historical_ledger(self) -> None:
         """Seeds historical verified savings and baseline ledger entries for demonstration."""

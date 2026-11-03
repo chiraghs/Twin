@@ -2,8 +2,8 @@ import "server-only";
 import { buildDemoFactory } from "@/domain/seed";
 import type { FactoryState } from "@/domain/types";
 import { sqliteStore, type FacilitySummary } from "./db/sqlite";
-import { displayPath, dataDir } from "./runtime";
-import path from "node:path";
+import { displayPath } from "./runtime";
+import { dbPath } from "./db/connection";
 
 /**
  * Server-authoritative factory state backed by SQLite (node:sqlite).
@@ -91,13 +91,13 @@ export function deleteFacility(id: string): boolean {
 }
 
 export function persistenceInfo() {
-  const dbFile = path.join(dataDir(), "twin.db");
   return {
     kind: "sqlite-database" as const,
-    path: displayPath(dbFile),
+    path: displayPath(dbPath()),
     activeFacility: sqliteStore.getActiveFacilityId(),
     totalFacilities: sqliteStore.listFacilities().length,
+    rows: sqliteStore.stats(),
     lastWriteError: cache.writeError,
-    note: "Multi-facility state is persisted to local SQLite (node:sqlite).",
+    note: "Factory twins are stored in normalised SQLite tables (one row per asset, incident, reading…); only changed rows are written.",
   };
 }

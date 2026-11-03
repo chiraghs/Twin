@@ -27,7 +27,10 @@ class TechnicianFeedbackService:
 
     def __init__(self) -> None:
         self.feedback_store: list[TechnicianFeedbackSubmission] = []
-        self._seed_sample_feedback()
+        from backend.core.db import bind_repository
+        from backend.features.predictive_maintenance.copilot.tables import FEEDBACK
+
+        bind_repository(self, {"feedback_store": FEEDBACK}, seed=self._seed_sample_feedback)
 
     def _seed_sample_feedback(self) -> None:
         """Seeds sample verified feedback for demonstration."""

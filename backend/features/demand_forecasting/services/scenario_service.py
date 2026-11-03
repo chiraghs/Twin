@@ -38,7 +38,10 @@ class WhatIfScenarioEngine:
         self.repo = repository or local_manufacturing_repo
         self.planning_service = planning_service or production_planning_service
         self.forecast_service = forecast_service or demand_forecasting_service
-        self._persisted_scenarios: dict[str, ScenarioSimulationResult] = {}
+        from backend.core.db import PersistentDict
+        from backend.features.demand_forecasting.repositories.tables import SCENARIOS
+
+        self._persisted_scenarios: dict[str, ScenarioSimulationResult] = PersistentDict(SCENARIOS)
 
     def simulate(self, request: ScenarioSimulationRequest) -> ScenarioSimulationResult:
         """Executes full constraint recalculation across demand, capacity, and materials."""
