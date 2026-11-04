@@ -314,6 +314,14 @@ You can edit lines, machines, rates, products, robots and connections directly, 
 
 Design, guarantees and limits: [docs/twin-builder.md](docs/twin-builder.md).
 
+## Plant-Private AI (Meta open-weight models)
+
+**Plant-Private AI → Blueprint to Twin** turns a plant drawing into a digital twin using only Meta's open-weight **Muse Spark Open**, served by [Baseten](https://www.baseten.co) (OpenAI-compatible Model APIs). No hosted model is called: no web research and no SAM 3.1. The drawing and requirements go only to the open-weight model.
+
+- **Same pipeline, open-weight adapter.** `src/server/private-ai/builder.ts` implements the Twin Builder's `BuilderAi` port, so provenance, deterministic validation and the compiler are the same code as the Twin Builder (which is unchanged and stays on the Meta Model API).
+- **Reliable JSON without structured outputs.** Muse Spark Open has no enforced JSON mode on Baseten, so the shape is given in the prompt, the reply is extracted and validated with the same zod schemas, and one repair turn lists the problems before the run falls back.
+- **Configure** in `.env`: `BASETEN_API_KEY`, `BASETEN_MODEL` (default `meta-models/muse-spark-open-1026`), optional `BASETEN_BASE_URL`. Every call is logged in `ai_calls` as `private: …`.
+
 ## Playground
 
 Open **Playground** in the sidebar. It starts from a copy of the live twin (the demo plant is read back into an editable spec), or from any of the 7 templates. Nothing changes in the live twin until you press **Apply to twin**; the draft is kept in your browser.
@@ -519,9 +527,9 @@ The Compose stack is sized for a demo and a single plant. Each part has a standa
 ## Testing
 
 ```bash
-npm test               # 136 Vitest tests (web app)
+npm test               # 141 Vitest tests (web app)
 npm run test:backend   # 84 pytest tests (intelligence backend)
-npm run build && npm run test:e2e   # 19 Playwright tests against the production server
+npm run build && npm run test:e2e   # 20 Playwright tests against the production server
 cd services/vision && uv run pytest # 16 pytest tests for the Python vision service
 ```
 

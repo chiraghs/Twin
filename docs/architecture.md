@@ -305,6 +305,19 @@ live tick ──(every 15 s, enabled features only)──► POST /api/v1/twin/s
 - **Failure isolation.** One feature failing a sync keeps its last good result; the others still update. With the backend
   down, the twin and its own agents run unchanged.
 
+
+### 7.6 Plant-Private AI (Meta open-weight models)
+
+**Plant-Private AI → Blueprint to Twin** runs the blueprint-to-twin flow on Meta's open-weight **Muse Spark Open**, served by Baseten's
+OpenAI-compatible Model APIs. It reuses the Twin Builder pipeline through its `BuilderAi` port (`src/server/private-ai/builder.ts`), so
+provenance, validation and the deterministic compiler are the same code; the hosted Twin Builder is unchanged.
+
+- **Nothing hosted.** No web research and no SAM 3.1: the drawing and requirements go only to the open-weight model.
+- **JSON without enforced structured output.** Shape in the prompt → extract → validate with the same zod schemas → one repair
+  turn listing the problems → otherwise the error (or a labelled template fallback).
+- **Configuration.** `BASETEN_API_KEY`, `BASETEN_MODEL` (default `meta-models/muse-spark-open-1026`), optional `BASETEN_BASE_URL`
+  in `.env`. Calls are logged in `ai_calls` as `private: …`.
+
 ## 8. Twin views, 3D and mobile robots
 
 - **Four views of one state:** Topology (React Flow), Isometric (SVG), Floor plan and **3D** (three.js through React Three Fiber, loaded only when the tab opens). The isometric and 3D views share one layout (`layoutIso`) and one machine-part library (`machineParts`), so they always agree; the 3D view adds orbit, pan, zoom, top view, focus and a turntable, with animated robot arms, belts and robots. Labels are DOM elements positioned by a per-frame projector (one React tree). Without WebGL the tab says so and points to the other views.

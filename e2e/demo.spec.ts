@@ -393,3 +393,17 @@ test("intelligence features: off by default, admin turns one on, its analytics p
     await request.put("/api/intelligence", { data: { feature: "maintenance", enabled: false } });
   }
 });
+
+test("Plant-Private AI: Blueprint to Twin page runs on the open-weight model only, and says clearly when it is not configured", async ({ page, request }) => {
+  const status = (await (await request.get("/api/private-ai")).json()) as { configured: boolean; provider: string; model: string };
+  expect(status.provider).toBe("Baseten");
+  expect(status.model).toMatch(/muse-spark-open/);
+  await page.goto("/private-ai", { waitUntil: "domcontentloaded" });
+  await expect(page.getByRole("heading", { name: "Blueprint to Twin · Plant-Private AI" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Blueprint to Twin" })).toBeVisible();
+  if (!status.configured) {
+    await expect(page.getByText("not configured: set BASETEN_API_KEY in .env")).toBeVisible();
+    const res = await request.post("/api/private-ai/blueprint", { multipart: { requirements: "test" } });
+    expect(res.status()).toBe(503);
+  }
+});

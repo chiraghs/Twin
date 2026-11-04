@@ -19,6 +19,7 @@ import {
   TrendingUp,
   ScanSearch,
   SlidersHorizontal,
+  LockKeyhole,
 } from "lucide-react";
 
 export const NAV = [
@@ -51,6 +52,10 @@ export const NAV = [
       { href: "/sustainability", label: "Sustainability", icon: Leaf },
       { href: "/audit", label: "Audit Trail", icon: History },
     ],
+  },
+  {
+    section: "Plant-Private AI",
+    items: [{ href: "/private-ai", label: "Blueprint to Twin", icon: LockKeyhole }],
   },
   {
     section: "Admin",
