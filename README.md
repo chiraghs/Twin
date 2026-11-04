@@ -67,7 +67,7 @@ Requirements: **Node.js ≥ 20.9** and npm. Without a key everything runs determ
 
 ```bash
 npm install
-cp .env.example .env.local   # then set MODEL_API_KEY (from https://dev.meta.ai)
+cp .env.example .env         # the ONE config file for web, backend and Docker; set MODEL_API_KEY (https://dev.meta.ai)
 npm run dev                  # http://localhost:3000
 ```
 
@@ -101,9 +101,9 @@ Tip — to run a dev server next to a running production build without them over
 Twin runs as two services that share one SQLite database (`.data/twin.db`): the web app above, and the **intelligence backend** (FastAPI), which serves the **Intelligence Backend** page: maintenance copilot, AOI inspection, supply chain, demand planning, operations copilots and their configuration. Start it in a second terminal:
 
 ```bash
-python -m venv .venv && .venv/bin/pip install fastapi "uvicorn[standard]" pydantic-settings numpy httpx python-multipart
-cp backend/.env.example backend/.env   # set MODEL_API_KEY for the Muse models
-npm run backend                        # http://localhost:8000  (BACKEND_PORT=xxxx to change)
+python3 -m venv .venv
+.venv/bin/pip install $(python3 -c "import tomllib; print(' '.join(tomllib.load(open('backend/pyproject.toml','rb'))['project']['dependencies']))")
+npm run backend    # runs Python (uvicorn) on http://localhost:8000; reads the same .env (BACKEND_PORT=xxxx to change)
 ```
 
 If it runs on another port or host, set **Integrations → Intelligence backend → Service URL** (or `INTELLIGENCE_BACKEND_URL`). The browser only talks to the web app, which proxies allow-listed `/api/backend/*` calls. If the backend is down, the rest of the app keeps working and the Intelligence Backend page says how to start it.
@@ -419,7 +419,7 @@ Everything works **without credentials**. Turn integrations on from **Admin → 
 
 ### Admin access
 
-Camera sources and integration settings need an admin session. The passcode is `TWIN_ADMIN_KEY` (in `.env.local`, or `.env` / a Docker secret under Compose). Unlock with **Unlock admin** on the control room or Integrations page; the session lasts 8 hours. Without a passcode, admin is open in local development and disabled when `TWIN_DEPLOYMENT=public`.
+Camera sources and integration settings need an admin session. The passcode is `TWIN_ADMIN_KEY` (in `.env`, or a Docker secret under Compose). Unlock with **Unlock admin** on the control room or Integrations page; the session lasts 8 hours. Without a passcode, admin is open in local development and disabled when `TWIN_DEPLOYMENT=public`.
 
 > **Model note.** Defaults are `muse-spark-1.3` (agents) and `muse-wonder-1.0` (briefings); change them with `META_MODEL` / `META_REASONING_MODEL` or in Integrations. SAM 3.1, Muse Image and Muse Voice Transcribe use `sam-3.1`, `muse-image-1.0` and `muse-voice-transcribe-1.0`.
 

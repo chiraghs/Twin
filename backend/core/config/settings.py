@@ -1,6 +1,21 @@
-"""Global application settings and environment variable schema."""
+"""Global application settings and environment variable schema.
+
+Configuration comes from ONE file, `.env` at the repo root (template: `.env.example`), shared with the
+web app and Docker Compose. It is loaded into the process environment, so code that reads os.getenv
+(service tokens) sees it too. Real environment variables always win; blank values (KEY=) count as unset.
+"""
+import os
+from pathlib import Path
+
+from dotenv import dotenv_values
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field
+
+_ROOT = Path(__file__).resolve().parents[3]
+if not os.getenv("TWIN_SKIP_ENV_FILES"):  # tests run with a clean environment
+    for _k, _v in dotenv_values(_ROOT / ".env").items():
+        if _v and not os.environ.get(_k):
+            os.environ[_k] = _v
 
 
 class BackendSettings(BaseSettings):
@@ -31,11 +46,7 @@ class BackendSettings(BaseSettings):
     mcp_server_name: str = "twin-enterprise-mcp"
     mcp_auth_token: str = ""
 
-    model_config = SettingsConfigDict(
-        env_file=".env",
-        env_file_encoding="utf-8",
-        extra="ignore",
-    )
+    model_config = SettingsConfigDict(extra="ignore")  # values come from the environment (see the module docstring)
 
 
 settings = BackendSettings()

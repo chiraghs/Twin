@@ -114,7 +114,7 @@ The router is mounted at `/api/v1/quality` in [`backend/main.py`](../../main.py)
 
 ```bash
 export PYTHONPATH=.
-cp backend/.env.example backend/.env      # set MODEL_API_KEY to turn on Muse Spark + SAM 3.1
+# set MODEL_API_KEY in the repo-root .env to turn on Muse Spark + SAM 3.1
 uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
 curl -F image=@board.png "localhost:8000/api/v1/quality/inspect?part_id=PART-ECU-REV-B-001"
 ```

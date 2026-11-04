@@ -7,7 +7,7 @@ import { dataDir, displayPath, isServerless } from "./runtime";
 /**
  * Integration settings that an admin can change in the UI.
  *
- * Each setting overrides the environment variable of the same name (docker-compose.yml / .env.local),
+ * Each setting overrides the environment variable of the same name (.env / docker-compose.yml),
  * so a deployment works out of the box and the UI only changes what it needs to. Saved settings
  * live in the SQLite tables `app_settings` (current values) and `app_settings_history` (every
  * change, never a secret's value). Secret values are

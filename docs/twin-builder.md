@@ -136,7 +136,7 @@ Connections are planned per line, machine or site and saved with the twin. The *
 
 ## Enabling the AI steps
 
-1. Set `MODEL_API_KEY` (Meta Model API) in `.env.local`, in `.env` under Docker Compose, or on the Integrations page.
+1. Set `MODEL_API_KEY` (Meta Model API) in `.env`, or on the Integrations page.
 2. Optionally change `META_MODEL` (default `muse-spark-1.3`).
 
 Calls retry once on 429/5xx. Muse models always reason and reasoning tokens count toward the output limit, so each call leaves headroom for them. SAM 3.1 runs in parallel with the read and never blocks it: if it fails, the boxes are Muse Spark estimates and the reading says so.

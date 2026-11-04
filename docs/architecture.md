@@ -381,7 +381,7 @@ The copilot runtime (`src/server/copilot/agent.ts`) drives the coordinator, spec
 | Setting | Value | Why |
 |---|---|---|
 | Models | `META_MODEL=muse-spark-1.3`, `META_REASONING_MODEL=muse-wonder-1.0` | Spark for tool use and extraction; Wonder for the trade-off briefing |
-| Auth | `MODEL_API_KEY` (`.env` under Compose, `.env.local` locally) | No keys in code or the browser; the base URL is deployment-only so the key can't be redirected from the UI |
+| Auth | `MODEL_API_KEY` in the repo-root `.env` (one file for web, backend and Compose) | No keys in code or the browser; the base URL is deployment-only so the key can't be redirected from the UI |
 | Retries | One retry on 429 or 5xx; one schema-dialect retry (`anyOf` for nullable types) | Recovers transient errors |
 | Reasoning | `reasoning.effort: "low"` for the briefing and copilot; default for builder drafting | Muse models always reason; low keeps it fast |
 | Structured output | `text.format` json_schema + zod on every structured call | Malformed output never reaches state |
@@ -398,7 +398,7 @@ The copilot runtime (`src/server/copilot/agent.ts`) drives the coordinator, spec
 - **Human approval.** Recommendations from the pipeline, the operator or the copilot are always *pending* until a person approves them. Approve, reject and rollback exist only as UI routes; no agent tool can call them.
 - **Audit.** Alerts, agent findings, scenario runs, proposals (with who proposed them), decisions, executed actions, camera live views and visual reviews are all audited.
 - **Admin.** Camera sources and integration settings change only with an admin session: a passcode (`TWIN_ADMIN_KEY`) unlocks an HMAC-signed, httpOnly, SameSite=Strict cookie for 8 hours, with constant-time comparison and a rate limit on wrong attempts. Without a passcode, admin is open in local development and disabled when `TWIN_DEPLOYMENT=public`.
-- **Secrets.** Server-side only. `.env.local` is git-ignored, and the browser never sees credentials. Secret settings entered in the UI (Meta Model API key, MCP token, service tokens, MQTT and S3 credentials) are write-only: never returned by the API or written to the audit trail. They are saved in SQLite on the private data volume; production would move them to OpenBao or Vault.
+- **Secrets.** Server-side only. `.env` is git-ignored, and the browser never sees credentials. Secret settings entered in the UI (Meta Model API key, MCP token, service tokens, MQTT and S3 credentials) are write-only: never returned by the API or written to the audit trail. They are saved in SQLite on the private data volume; production would move them to OpenBao or Vault.
 - **Outbound URLs.** Stream and service URLs must be https (localhost for testing), without credentials, and the metadata server is refused.
 - **Uploads.** Size and type limits: 15 MB for images and drawings, 30 MB for video. Files are processed in memory or a temp file and never stored. The vision service and the intelligence backend are reachable only on the Compose network and, when their tokens are set, reject calls without the bearer token (401).
 - **Privacy.** Camera face blur, retention and purpose are recorded per camera, and live views are audited, following India's DPDP Act. Video analytics are advisory and never safety functions (IEC 61496 / ISO 13849).
@@ -441,8 +441,8 @@ The e2e suite runs against local production builds and against the live URL (`E2
 | Task | How |
 |---|---|
 | Deploy | `docker compose up --build` (web, backend, vision on one `twin-data` volume); `--profile mqtt --profile storage` adds Mosquitto and MinIO |
-| Configuration | Integrations page for integration settings (admin); `.env` (Compose) or `.env.local` (local) for deployment defaults and secrets, git-ignored |
-| AI access | `MODEL_API_KEY` from dev.meta.ai in `.env` / `.env.local` |
+| Configuration | Integrations page for integration settings (admin); `.env` (one file, read by the web app, the backend and Compose) for deployment defaults and secrets, git-ignored |
+| AI access | `MODEL_API_KEY` from dev.meta.ai in `.env` |
 | Health | `GET /api/health`; backend `/health`; Integrations page with real connectivity tests |
 | Vision service | Compose service `vision` at `http://vision:8080`; `VISION_SERVICE_TOKEN` on both sides. Locally: `uv run uvicorn app.main:app` in `services/vision`. |
 | Integration settings | Integrations page (admin). Saved to SQLite (`app_settings`, history in `app_settings_history`). |
