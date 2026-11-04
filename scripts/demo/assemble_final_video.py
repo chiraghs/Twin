@@ -133,7 +133,7 @@ print(f"Total video duration: {video_dur:.2f}s")
 
 # ── 2. Precise Audio Track Assembly ──────────────────────────────────────────
 # Schedule matching the exact segment boundaries:
-# 0. Hook: 0:00 - 40.0s (audio starts at 1.0s, duration 33.0s)
+# 0. Hook: 0:00 - 40.0s (audio starts at 0.8s, duration 38.4s -> finishes at 39.2s)
 # 1. Landing: 40.0 - 47.0s (audio starts at 40.2s, duration 6.8s)
 # 2. Command: 47.0 - 73.0s (audio starts at 47.5s, duration 24.9s)
 # 3. Agents: 73.0 - 103.0s (audio starts at 73.5s, duration 28.3s)
@@ -146,7 +146,7 @@ print(f"Total video duration: {video_dur:.2f}s")
 # 10. Closing: 226.0 - 235.0s (audio starts at 226.5s, duration 8.7s)
 
 audio_schedule = [
-    (1.0, AUDIO_DIR / "s00_hook.wav"),
+    (0.8, AUDIO_DIR / "s00_hook.wav"),
     (40.2, AUDIO_DIR / "s01_landing.wav"),
     (47.5, AUDIO_DIR / "s02_command.wav"),
     (73.5, AUDIO_DIR / "s03_agents.wav"),
