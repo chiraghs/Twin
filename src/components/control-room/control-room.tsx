@@ -347,7 +347,7 @@ function Inspector({ state, camera }: { state: FactoryState; camera: Camera }) {
             <li key={r.id} className="rounded-lg border border-line bg-shell p-2 text-[11.5px]">
               <div className="flex items-center justify-between gap-2">
                 <span className="font-mono text-muted">
-                  {r.id} · {r.source === "opencv" ? "OpenCV" : r.source === "ai" ? "AI review" : "Station log"}
+                  {r.id} · {r.source === "opencv" ? "OpenCV" : r.source === "ai" ? "AI review" : r.source === "aoi" ? "AOI" : "Station log"}
                 </span>
                 <Badge tone={r.disposition === "pending-human-review" ? "warning" : r.disposition === "confirmed" ? "healthy" : "neutral"}>{r.disposition.replace(/-/g, " ")}</Badge>
               </div>

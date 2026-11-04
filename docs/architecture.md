@@ -276,6 +276,35 @@ flowchart TB
 
 ---
 
+
+### 7.5 Intelligence features on the twin (Admin → Features)
+
+Four backend features run on the web twin's own plant. All are off by default.
+
+```
+live tick ──(every 15 s, enabled features only)──► POST /api/v1/twin/sync  {plant snapshot}
+                                                     │ adapters implement each feature's port over the snapshot
+                                                     ├─ PredictiveMaintenanceService  (ITelemetryReader)
+                                                     ├─ SupplyChainService            (IERPInventoryReader)
+                                                     ├─ DemandForecastingEngine       (generated history, champion vs baseline)
+                                                     └─ VisualQualityService.inspect  (per uploaded image)
+                                                     ▼
+                                          tw_* tables (snapshot, insights, history)
+         ◄── insights cached per facility ───────────┘
+   ├─ added to the specialists' reports as a separate, sourced finding ("Intelligence backend")
+   ├─ Analytics pages (Maintenance, Supply Chain, Demand, Quality)
+   └─ "Propose" → PENDING recommendation → Approvals → work order / inbound purchase order
+```
+
+- **Same engines, different data.** The adapters (`backend/features/twin_bridge/service.py`) feed the existing services, so the
+  logic that serves the demo plants serves the twin. Maintenance uses each machine's own alarm and trip limits for the ISO zones.
+- **Honest data.** Demand history for the twin is generated from its capacity and product mix, seeded and labelled simulated.
+  The forecast keeps the main model only if it beats the seasonal-naive baseline out of time.
+- **Human approval stays.** Proposals reuse the twin's scenario engine (maintenance) or add a `place-order` action (purchase
+  orders); nothing executes until a person approves. Purchase orders never supersede machine plans.
+- **Failure isolation.** One feature failing a sync keeps its last good result; the others still update. With the backend
+  down, the twin and its own agents run unchanged.
+
 ## 8. Twin views, 3D and mobile robots
 
 - **Four views of one state:** Topology (React Flow), Isometric (SVG), Floor plan and **3D** (three.js through React Three Fiber, loaded only when the tab opens). The isometric and 3D views share one layout (`layoutIso`) and one machine-part library (`machineParts`), so they always agree; the 3D view adds orbit, pan, zoom, top view, focus and a turntable, with animated robot arms, belts and robots. Labels are DOM elements positioned by a per-frame projector (one React tree). Without WebGL the tab says so and points to the other views.
@@ -390,7 +419,7 @@ The copilot runtime (`src/server/copilot/agent.ts`) drives the coordinator, spec
 2. Authentication and per-facility access rules; multiple tenants.
 3. Run several web replicas and the plant clock as a scheduled job, not per browser tick.
 4. MQTT ingestion from the edge gateway for real telemetry (the adapter already exists), bridged to Kafka or Redpanda at plant-fleet scale.
-5. Link the intelligence backend's assets to the web twin's facilities (today they are two demo datasets in the same database).
+5. Real demand history from an ERP for the twin (today it is generated and labelled simulated), and scikit-learn in the backend image for the gradient-boosted challenger.
 6. Analytics on ClickHouse, or Iceberg tables queried by Trino/Presto with Velox, in place of DuckDB snapshots (the report SQL carries over). The README's [Scaling to market standards](../README.md#scaling-to-market-standards) lists each component's path.
 
 ---

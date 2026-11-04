@@ -2,6 +2,7 @@ import { commitAnalysis, runAnalysisPipeline, type PipelineEvent } from "@/domai
 import type { FactoryState } from "@/domain/types";
 import { generateNarrative } from "@/server/ai/provider";
 import { json, ndjsonResponse, nowISO, route } from "@/server/http";
+import { insightsForAnalysis } from "@/server/intelligence";
 import { getState, mutate } from "@/server/store";
 
 export const dynamic = "force-dynamic";
@@ -27,7 +28,9 @@ export const POST = route(async (req: Request) => {
 /** The pipeline's events, then the commit (skipped if the factory was reset meanwhile). Releases the lock when done. */
 async function* analysis(snapshot: FactoryState, fast: boolean): AsyncGenerator<AnalyzeEvent> {
   try {
+    const insights = await insightsForAnalysis(snapshot).catch(() => undefined);
     const gen = runAnalysisPipeline(snapshot, {
+      insights,
       nowISO,
       pace: (ms) => (fast ? Promise.resolve() : new Promise((r) => setTimeout(r, ms))),
       narrate: generateNarrative,

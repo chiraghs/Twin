@@ -15,6 +15,8 @@ import { addScenarioRun, pickFocusAsset, presetScenarios } from "../scenarios";
 import { simulateScenarios } from "../simulation";
 import type { AgentId, AgentReport, AnalysisRun, FactoryState, Narrative, Recommendation, ScenarioResult, ScenarioRun, StageState, WorkflowStage } from "../types";
 import { AGENT_META, fmtInt, type AnalysisContext } from "./context";
+import { enrichReport } from "./external";
+import type { BackendInsights } from "../intelligence";
 import { runEnergyAgent } from "./energy";
 import { runMaintenanceAgent } from "./maintenance";
 import { buildOrchestratorReport, detectConflicts, runScenarioSet } from "./orchestrator";
@@ -43,6 +45,8 @@ export interface PipelineDeps {
   nowISO: () => string;
   pace: (ms: number) => Promise<void>;
   narrate?: (input: NarrativeInput) => Promise<Narrative>;
+  /** Results of the enabled intelligence features for this plant (added to the specialists' reports). */
+  insights?: BackendInsights;
 }
 
 export interface AnalysisBundle {
@@ -113,7 +117,7 @@ export async function* runAnalysisPipeline(snapshot: FactoryState, deps: Pipelin
   for (const [id, fn] of specialists) {
     yield { type: "agent", agentId: id, status: "running" };
     await deps.pace(650);
-    const report = fn(ctx);
+    const report = enrichReport(id, fn(ctx), deps.insights, state);
     reports.push(report);
     analysis.reports[id] = report;
     audit.push({

@@ -364,3 +364,30 @@ test("browser preferences are stored on the server per client", async ({ request
   expect((await request.put("/api/prefs/Bad Name", { data: { value: 1 } })).status()).toBe(400);
   await request.delete("/api/prefs/e2e-check");
 });
+
+test("intelligence features: off by default, admin turns one on, its analytics page and agent evidence follow", async ({ page, request }) => {
+  const list = (await (await request.get("/api/intelligence")).json()) as { features: { id: string; enabled: boolean }[] };
+  for (const f of list.features) expect(f.enabled).toBe(false);
+  expect((await request.get("/api/intelligence/maintenance/analytics")).status()).toBe(409);
+  await page.goto("/analytics/maintenance", { waitUntil: "domcontentloaded" });
+  await expect(page.getByText("Predictive maintenance is off")).toBeVisible();
+
+  const ready = await request.get("/api/backend/ready");
+  test.skip(!ready.ok(), "Needs the Python intelligence backend");
+  try {
+    const on = await request.put("/api/intelligence", { data: { feature: "maintenance", enabled: true } });
+    expect(on.ok()).toBeTruthy();
+    expect(((await on.json()) as { sync: { ok: boolean } }).sync.ok).toBe(true);
+    await page.goto("/features", { waitUntil: "domcontentloaded" });
+    await expect(page.getByRole("switch", { name: "Predictive maintenance on or off" })).toBeChecked();
+    await page.goto("/analytics/maintenance", { waitUntil: "domcontentloaded" });
+    await expect(page.getByRole("heading", { name: "Hours to trip" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "All machines" })).toBeVisible();
+    // The backend's result reaches the maintenance agent as a separately sourced finding.
+    const events = (await (await request.post("/api/agents/analyze?fast=1")).text()).trim().split("\n").map((l) => JSON.parse(l));
+    const maint = events.find((e) => e.type === "agent" && e.agentId === "maintenance" && e.status === "complete");
+    expect(maint.report.findings.some((f: { id: string }) => f.id === "xb-maint")).toBe(true);
+  } finally {
+    await request.put("/api/intelligence", { data: { feature: "maintenance", enabled: false } });
+  }
+});

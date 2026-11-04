@@ -47,6 +47,11 @@ const pattern = (re: RegExp, msg: string) => (v: string) => (re.test(v) ? null :
 export const AI_PROVIDERS = ["meta"] as const;
 export type AiProviderId = (typeof AI_PROVIDERS)[number];
 
+const ON_OFF: Option[] = [
+  { value: "true", label: "On" },
+  { value: "false", label: "Off" },
+];
+
 export const SETTINGS = {
 
   AI_ENABLED: {
@@ -86,7 +91,7 @@ export const SETTINGS = {
   },
   INTELLIGENCE_BACKEND_TOKEN: {
     label: "Service token",
-    help: "Shared bearer token: the web app sends it to the intelligence backend, which requires it when TWIN_SERVICE_TOKEN is set there. Stored on the server; never shown again.",
+    help: "Shared bearer token: the web app sends it to the intelligence backend, which requires it when its INTELLIGENCE_BACKEND_TOKEN is set. Stored on the server; never shown again.",
     secret: true,
     validate: pattern(/^[A-Za-z0-9._~+\-]{16,200}$/, "Use 16–200 URL-safe characters"),
   },
@@ -176,6 +181,30 @@ export const SETTINGS = {
     help: "Broker password (optional). Stored on the server; never shown again.",
     secret: true,
     validate: pattern(/^\S{1,200}$/, "Not a valid password"),
+  },
+  FEATURE_PREDICTIVE_MAINTENANCE: {
+    defaultValue: "false",
+    label: "Predictive maintenance",
+    help: "Runs the backend's ISO 10816-3 and remaining-useful-life engine on this plant's machines; findings reach the Maintenance agent and Approvals.",
+    options: ON_OFF,
+  },
+  FEATURE_SUPPLY_CHAIN: {
+    defaultValue: "false",
+    label: "Supply chain intelligence",
+    help: "Days of supply, stock-out countdown per line and purchase-order recommendations for this plant's materials.",
+    options: ON_OFF,
+  },
+  FEATURE_DEMAND_FORECASTING: {
+    defaultValue: "false",
+    label: "Demand forecasting",
+    help: "P10/P50/P90 forecasts per product and capacity headroom, on a generated (simulated) demand history.",
+    options: ON_OFF,
+  },
+  FEATURE_VISION_INSPECTION: {
+    defaultValue: "false",
+    label: "AOI vision inspection",
+    help: "Inspects product images from this plant's inspection cameras (Muse Spark + SAM 3.1, OpenCV, IPC-A-610 rules); results await a person's decision.",
+    options: ON_OFF,
   },
   TWIN_MCP_ENABLED: {
     defaultValue: "true",

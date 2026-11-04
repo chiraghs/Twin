@@ -59,7 +59,8 @@ class VisualQualityService(IVisualQualityUseCase):
         self.opencv_client = opencv_client or OpenCVAlignmentClient()
 
     async def inspect_part(
-        self, camera_id: str, part_id: str, frame_bytes: Optional[bytes] = None
+        self, camera_id: str, part_id: str, frame_bytes: Optional[bytes] = None,
+        plant_id: str = "PLANT_BANGALORE", line_id: str = "LINE-1", demo_rules: bool = True,
     ) -> InspectionResult:
         """Executes full optical inspection pipeline:
         1. Muse Spark: serial / barcode reading
@@ -92,7 +93,7 @@ class VisualQualityService(IVisualQualityUseCase):
                 golden_template_bytes=b"GOLDEN_BYTES"
             )
         else:
-            is_defective = "DEF" in part_id or (part_id[-1].isdigit() and int(part_id[-1]) % 5 == 0)
+            is_defective = demo_rules and ("DEF" in part_id or (part_id[-1].isdigit() and int(part_id[-1]) % 5 == 0))
             similarity = 0.72 if is_defective else 0.98
             diff_findings = []
         align_ms = (time.perf_counter() - t_align_start) * 1000.0
@@ -111,7 +112,8 @@ class VisualQualityService(IVisualQualityUseCase):
 
         # 5. Deterministic IPC-A-610 Class 2 Rule Engine Decision
         # Pass/Fail is determined strictly by deterministic rules and validated thresholds, NEVER by a model alone
-        is_defective_flag = "DEF" in part_id or (part_id[-1].isdigit() and int(part_id[-1]) % 5 == 0)
+        # Demo plants only: part ids marked DEF (or ending in 0/5) stand for known-defective boards.
+        is_defective_flag = demo_rules and ("DEF" in part_id or (part_id[-1].isdigit() and int(part_id[-1]) % 5 == 0))
         
         if len(all_defects) > 0 or similarity < cfg.golden_similarity_threshold or is_defective_flag:
             # Check confidence levels
@@ -145,8 +147,8 @@ class VisualQualityService(IVisualQualityUseCase):
             inspection_id=inspection_id,
             camera_id=camera_id,
             part_id=part_id,
-            plant_id="PLANT_BANGALORE",
-            line_id="LINE-1",
+            plant_id=plant_id,
+            line_id=line_id,
             timestamp=t_now,
             verdict=verdict,
             defects=all_defects,

@@ -528,7 +528,7 @@ export interface ScenarioRun {
 
 /* ───────────────────────── Recommendations ───────────────────────── */
 
-export type ActionType = "schedule-maintenance" | "reroute-production" | "adjust-speed" | "reserve-inventory" | "expedite-inbound";
+export type ActionType = "schedule-maintenance" | "reroute-production" | "adjust-speed" | "reserve-inventory" | "expedite-inbound" | "place-order";
 
 export interface ProposedAction {
   id: string;
@@ -562,7 +562,7 @@ export interface Recommendation {
   id: string;
   createdHour: number;
   at: string;
-  source: "orchestrator" | "operator" | "rule";
+  source: "orchestrator" | "operator" | "rule" | "intelligence";
   analysisId: string | null;
   scenarioRunId: string;
   scenarioId: string;
@@ -673,13 +673,15 @@ export interface VisionReview {
   cameraId: string | null;
   at: string;
   hour: number;
-  source: "ai" | "simulated-inspection-log" | "opencv";
+  source: "ai" | "simulated-inspection-log" | "opencv" | "aoi";
   model?: string;
   fileName: string | null;
   summary: string;
   findings: VisionFinding[];
   disposition: "pending-human-review" | "confirmed" | "dismissed";
   note: string;
+  /** AOI reviews: the intelligence backend's inspection id (the disposition is sent back to it). */
+  externalId?: string;
 }
 
 /** A mobile robot built into the twin from the Twin Builder spec (simulated; no fleet manager connected). */

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Sparkles, Wand2 } from "lucide-react";
+import { ArrowLeft, Sparkles, Wand2 } from "lucide-react";
 import { useBuilder } from "@/client/builder";
 import { useFactory } from "@/client/store";
 import { BrandMark, BrandName } from "@/components/brand";
@@ -33,6 +33,15 @@ export default function TwinBuilderPage() {
     setHydrated(true);
   }, [loadMeta]);
 
+  // Back to the platform page the user came from; the dashboard when the builder was opened directly.
+  const goBack = () => {
+    let last: string | null = null;
+    try {
+      last = sessionStorage.getItem("twin:last-page");
+    } catch {}
+    router.push(last && last.startsWith("/") ? last : "/dashboard");
+  };
+
   const loadDemo = async () => {
     await reset();
     router.push("/dashboard");
@@ -44,10 +53,15 @@ export default function TwinBuilderPage() {
         <MobileNotice />
         <div className="pointer-events-none fixed inset-0 grid-bg [mask-image:radial-gradient(ellipse_at_top,black_30%,transparent_70%)]" aria-hidden />
         <header className="relative mx-auto flex h-16 max-w-[1500px] items-center justify-between gap-2 px-4">
-          <Link href="/" className="flex items-center gap-2.5">
-            <BrandMark />
-            <BrandName className="text-[15px]" />
-          </Link>
+          <div className="flex items-center gap-3">
+            <Button size="sm" variant="secondary" onClick={goBack} aria-label="Back">
+              <ArrowLeft className="h-3.5 w-3.5" /> <span className="hidden sm:inline">Back</span>
+            </Button>
+            <Link href="/" className="flex items-center gap-2.5">
+              <BrandMark />
+              <BrandName className="text-[15px]" />
+            </Link>
+          </div>
           <div className="flex items-center gap-2">
             <ThemeToggle />
             <Button size="sm" variant="secondary" onClick={loadDemo} loading={resetting}>

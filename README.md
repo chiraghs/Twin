@@ -161,6 +161,7 @@ The fastest path is **Demo controls → Run Factory Crisis Demo** (top-right). I
 | **Muse Wonder** writes the orchestrator's decision briefing (Muse Spark as fallback), with schema validation, timeout, numeric grounding check and deterministic fallback | ✅ needs `MODEL_API_KEY` |
 | **SQLite system of record** shared by both services: normalised twin tables with change-only writes, settings and configuration history, per-browser preferences and drafts, copilot conversations, AI call log, run history ([data model](docs/data-model.md)) | ✅ |
 | **Intelligence Backend page** (via `/api/backend` proxy): fleet risk, maintenance copilot in 7 languages, recommendation approval, AOI inspection with defect boxes and dispositions, supply-chain what-if and assistant, mitigation approval, S&OP brief, shift handover, alarm triage, editable feature configs with history, live data model | ✅ needs the backend running |
+| **Four intelligence features on your own plant** (predictive maintenance, supply chain, demand forecasting, AOI vision): off by default, turned on and configured in **Admin → Features**; the plant is synced to the backend every 15 s, results reach the agents as sourced evidence, one-click proposals go to Approvals (preventive maintenance → work order, purchase order → inbound delivery), and each has an **Analytics** page | ✅ needs the backend running |
 | **DuckDB analytics** over the shared SQLite database: monthly demand, sensor health, supplier exposure, Meta Model API usage (Intelligence Backend → Analytics) | ✅ |
 | Open-source adapters with real connectivity tests: **MQTT** telemetry ingestion (Mosquitto, EMQX) and **S3-compatible** document storage (MinIO, SeaweedFS, any S3) | ✅ implemented; need configuration |
 | `docker-compose.yml`: web, backend and vision service on one shared volume; optional Mosquitto and MinIO profiles; bearer tokens between services | ✅ |
@@ -175,6 +176,7 @@ Twin is two services and one database ([diagram](docs/architecture/twin-architec
 - **Intelligence backend — Python 3.12+ / FastAPI (`backend/`).** Predictive maintenance, AOI inspection, supply chain intelligence, demand forecasting and S&OP planning, and operations copilots, each a hexagonal feature module.
 - **SQLite (`.data/twin.db`) — the system of record for both.** WAL mode lets both processes use the same file; each owns and migrates its tables (`schema_migrations`). No state lives only in the browser or in memory.
 - **Meta Model API.** Muse Spark, Muse Wonder, SAM 3.1, Muse Image and Muse Voice Transcribe, called by both services. Every call is logged in `ai_calls`.
+- **Twin bridge.** While a feature is on (Admin → Features), the web app sends a snapshot of the active plant to `POST /api/v1/twin/sync` every 15 s. The backend runs its own engines on it through adapters (the same maintenance, supply and forecasting code that serves its demo plants) and stores the results in `tw_*` tables; they come back as agent evidence, Analytics pages and pending recommendations.
 - **Optional:** the Python **vision service** (`services/vision`, FastAPI + OpenCV) for deterministic machine-vision checks, called server-to-server; MQTT telemetry and S3-compatible storage adapters (open source).
 
 ```
@@ -206,7 +208,7 @@ Next.js route handlers (/api/*)               ← validate (zod) → domain comm
  │
  ├──► services/vision (Python, optional)   FastAPI + OpenCV, called with a bearer token
  │
- └──► SQLite .data/twin.db  ◄── shared by the web app and the intelligence backend (83 tables)
+ └──► SQLite .data/twin.db  ◄── shared by the web app and the intelligence backend (96 tables)
 ```
 
 **Single source of truth.** Each plant twin is one `FactoryState` aggregate (`src/domain/types.ts`): lines, assets, telemetry, production history, inventory, orders, work orders, directives, incidents, analyses, scenario runs, recommendations and audit. The engine works on it in memory; SQLite is its system of record, one table per collection, and only changed rows are written. The simulator and dashboard forecast run the *same* domain code client-side on a snapshot, so what-if sliders respond instantly, and the server recomputes whenever a run is recorded.
@@ -368,6 +370,11 @@ Design details: [docs/architecture.md § 7](docs/architecture.md#7-agentic-layer
 | `POST /api/scenarios` · `POST /api/scenarios/compare` | Run and record · stateless comparison |
 | `GET/POST /api/recommendations` · `POST /api/recommendations/:id/{approve,reject,rollback}` | Recommendations and decisions |
 | `GET /api/audit` · `GET /api/kpis` · `GET /api/integrations` · `POST /api/integrations/test` | Audit, KPIs, integration status (with each setting's source) and tests |
+| `GET/PUT /api/intelligence` | The four features: on/off (PUT is admin), last sync, headline counts |
+| `GET/PUT /api/intelligence/:feature/config` | A feature's backend configuration and history (PUT is admin) |
+| `GET /api/intelligence/:feature/analytics` | Data for the feature's Analytics page (409 while the feature is off) |
+| `POST /api/intelligence/propose` | `{kind: "maintenance", assetId}` or `{kind: "purchase-order", itemId}` → a pending recommendation |
+| `POST /api/intelligence/vision/inspect` | Multipart `file` + `cameraId` (+ `productId`): AOI inspection stored as a visual review |
 | `PUT /api/integrations/settings` | Change integration settings (admin): `{values: {KEY: "value" \| "" \| null}}`; `""` turns a setting off, `null` returns it to the deployment value |
 | `GET/POST/DELETE /api/admin/session` | Admin status · unlock with `{passcode}` (sets an httpOnly cookie) · lock |
 | `GET /api/documents?assetId=` · `GET /api/documents/:id` | Asset documents |
@@ -421,6 +428,18 @@ Use **Integrations → Test connection** to verify each configured service.
 ---
 
 ## Manufacturing intelligence backend & feature domains
+
+### The four features on your plant
+
+| Feature | What it computes from your plant | Where it shows | What a person can do |
+|---|---|---|---|
+| Predictive maintenance | ISO 10816-3 zone (from each machine's own alarm and trip limits), health score, hours to trip (linear trend on the 10-minute history) | Maintenance agent evidence, **Analytics → Maintenance** | Propose preventive maintenance (simulated on the twin's scenario engine) → approve → work order |
+| Supply chain | Days of supply and runway per material (counting inbound that arrives in time), stock-out countdown per line, supplier exposure, purchase-order sizing; late inbound flagged for expediting instead of a second order | Supply agent evidence, **Analytics → Supply Chain** | Propose a purchase order → approve → inbound delivery (rollback cancels it) |
+| Demand forecasting | P10/P50/P90 per product; champion/challenger against the seasonal-naive baseline on held-out data; capacity used and order-book coverage. History is generated from the plant's capacity and product mix and **labelled simulated** | Production agent evidence, **Analytics → Demand** | Change the horizon and capacity-warning threshold in Admin → Features |
+| AOI vision | Inspection of product images from the plant's inspection cameras: Muse Spark + SAM 3.1 defects, OpenCV golden comparison, IPC-A-610 verdict rules | Visual Quality reviews, quality agent evidence, **Analytics → Quality** | Confirm or dismiss each review; the decision updates detector precision |
+
+All four are **off by default**. Turning one on (admin) syncs the plant immediately; turning it off stops syncing, agent evidence and its Analytics page. Settings marked "used here" in Admin → Features change this plant's results; the rest apply to the backend's demo plants.
+
 
 Twin includes an enterprise-grade, Hexagonal/DDD Python backend ([`backend/`](backend/README.md)) running on **Python 3.12+ / FastAPI**, with all AI on **Meta Model API** (`backend/core/ai`: Muse Spark, Muse Wonder, SAM 3.1, Muse Image; grounded, with deterministic fallbacks) and DuckDB analytics over the shared SQLite database, with interactive Streamlit operations cockpits ([`dashboard/`](dashboard/README.md)).
 
@@ -500,9 +519,9 @@ The Compose stack is sized for a demo and a single plant. Each part has a standa
 ## Testing
 
 ```bash
-npm test               # 132 Vitest tests (web app)
-npm run test:backend   # 77 pytest tests (intelligence backend)
-npm run build && npm run test:e2e   # 18 Playwright tests against the production server
+npm test               # 136 Vitest tests (web app)
+npm run test:backend   # 84 pytest tests (intelligence backend)
+npm run build && npm run test:e2e   # 19 Playwright tests against the production server
 cd services/vision && uv run pytest # 16 pytest tests for the Python vision service
 ```
 
@@ -543,7 +562,7 @@ src/
                        archetypes, rules (maintenance rules), builder/ (spec, validation, compile, templates, edit
                        operations, agent workflow, spec from a running twin), tools/ (agent tool layer, grounding),
                        recommendations, actions, KPIs, seed
-  server/              persistence, AI provider, integrations, documents, request schemas
+  server/              persistence, AI provider, integrations, intelligence bridge (sync + cache), documents, request schemas
 backend/               Enterprise Hexagonal Python backend (FastAPI, SQLite, DuckDB analytics, ML models)
   core/                Cross-cutting abstractions, DI container, event bus
   connectors/          Industrial OT (OPC UA, MQTT, Modbus) and IT bridges
@@ -557,6 +576,7 @@ backend/               Enterprise Hexagonal Python backend (FastAPI, SQLite, Duc
     visual_quality_inspection/ AOI, OpenCV golden template alignment, IPC-A-610 grading
     waste_reduction/           Scrap causal attribution, machine friction, Scope 1 & 2 carbon
     operational_copilots/      Digital SOP conversational guidance, LOTO protocols, shift handover
+    twin_bridge/               Runs the four features on the web twin's plant (snapshot sync, tw_* tables)
 dashboard/             Streamlit manufacturing operations cockpits
 services/vision/       Python vision service (FastAPI + OpenCV), tests, Dockerfile
 services/agents/       Python Muse Spark agent that operates the twin over MCP
@@ -574,7 +594,7 @@ tests/ e2e/            Vitest, Playwright, and Pytest suites
 - **Simulated plant.** All telemetry, production and costs come from a deterministic model with fictional demo data. Results are estimates, not validated forecasts.
 - **No real cameras in the demo.** Camera feeds are rendered from the twin, or play reference footage of other factories, which is labelled as such. Inspection results come from the plant model's scrap attribution, not a trained vision model, and are not derived from the footage. Real streams need a plant-side gateway (HLS / MP4 / MJPEG over HTTPS). Muse Spark footage review and SAM 3.1 localisation are advisory and unvalidated; run an attribute-agreement study before relying on them. Muse Image test photos are synthetic and labelled as such.
 - **No real equipment control.** Approval changes only the digital twin. The platform never writes to PLCs or commands machines; that would need a separately authenticated, authorized and safety-validated integration.
-- **Two demo datasets.** The intelligence backend has its own demo plants (Bangalore, Stuttgart, Detroit) and machines; they are not the same plant as the web app's twin. Both live in the same database but are not linked yet.
+- **Two kinds of backend data.** The Intelligence Backend page (Admin) shows the backend's own demo plants (Bangalore, Stuttgart, Detroit). The four features in Admin → Features run on the web twin's plant instead. Demand history for the twin is generated (labelled simulated), and the forecasting engine runs without scikit-learn, so the seasonal-naive baseline usually wins the champion/challenger check.
 - **One database file, one host.** Both services share one SQLite file, so they must run on the same machine (or share a volume), as Docker Compose does with the `twin-data` volume. Tables are keyed by facility and use plain SQL, so moving to PostgreSQL is a driver change rather than a redesign (see [Scaling to market standards](#scaling-to-market-standards)).
 - **No per-user login.** Configuration changes (camera sources, integration settings) need the admin passcode; everything else is open to anyone with the URL.
 - **Mobile robots are simulated.** Fleets come from the Twin Builder spec (the demo plant has a derived kitting and pallet fleet); missions and trip rates follow the plant model; no fleet manager is connected (a VDA 5050 or vendor-API adapter would supply real positions). The 3D animation runs at real speed while the plant clock runs 30× faster.

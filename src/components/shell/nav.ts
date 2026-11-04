@@ -14,6 +14,11 @@ import {
   Shapes,
   Wand2,
   Server,
+  Wrench,
+  PackageSearch,
+  TrendingUp,
+  ScanSearch,
+  SlidersHorizontal,
 } from "lucide-react";
 
 export const NAV = [
@@ -34,12 +39,15 @@ export const NAV = [
       { href: "/agents", label: "AI Operations", icon: BrainCircuit },
       { href: "/simulator", label: "What-If Simulator", icon: FlaskConical },
       { href: "/approvals", label: "Approvals", icon: ClipboardCheck },
-      { href: "/intelligence", label: "Intelligence Backend", icon: Server },
     ],
   },
   {
-    section: "Insight",
+    section: "Analytics",
     items: [
+      { href: "/analytics/maintenance", label: "Maintenance", icon: Wrench },
+      { href: "/analytics/supply", label: "Supply Chain", icon: PackageSearch },
+      { href: "/analytics/demand", label: "Demand", icon: TrendingUp },
+      { href: "/analytics/quality", label: "Quality", icon: ScanSearch },
       { href: "/sustainability", label: "Sustainability", icon: Leaf },
       { href: "/audit", label: "Audit Trail", icon: History },
     ],
@@ -48,7 +56,9 @@ export const NAV = [
     section: "Admin",
     items: [
       { href: "/control-room", label: "CCTV Control Room", icon: Cctv },
+      { href: "/features", label: "Features", icon: SlidersHorizontal },
       { href: "/integrations", label: "Integrations", icon: PlugZap },
+      { href: "/intelligence", label: "Intelligence Backend", icon: Server },
     ],
   },
 ] as const;

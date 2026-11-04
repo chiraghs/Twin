@@ -10,6 +10,7 @@ import { appendAudit } from "./audit";
 import { DomainError } from "./errors";
 import { nextId } from "./ids";
 import { round } from "./math";
+import { PURCHASE_ORDER } from "./recommendations";
 import { describeAllocation } from "./world";
 import type { Directive, ExecutionStep, FactoryState, Recommendation } from "./types";
 
@@ -128,6 +129,14 @@ export function approveRecommendation(state: FactoryState, id: string, by: strin
           item.inbound.push({ poId: nextId(state, "PO", 7800), qty: item.reorderPoint, etaHour: eta, expedited: true });
         }
         step.message = `${item.inbound[0].poId} expedited to h+${Number(action.params.etaInHours)} ($${Number(action.params.cost).toLocaleString("en-US")}, simulated).`;
+      } else if (action.type === "place-order") {
+        const item = state.inventory.find((i) => i.id === action.params.itemId);
+        if (!item) throw new DomainError(`Item ${action.params.itemId} not found`);
+        const poId = nextId(state, "PO", 7800);
+        item.inbound.push({ poId, qty: Number(action.params.qty), etaHour: round(now + Number(action.params.etaInHours), 4) });
+        item.inbound.sort((a, b) => a.etaHour - b.etaHour);
+        action.params.poId = poId;
+        step.message = `${poId}: ${Number(action.params.qty).toLocaleString("en-US")} × ${item.id} from ${action.params.supplier}, arriving h+${Number(action.params.etaInHours)} ($${Number(action.params.cost).toLocaleString("en-US")}, simulated).`;
       }
       step.status = "applied";
     } catch (e) {
@@ -148,11 +157,15 @@ export function approveRecommendation(state: FactoryState, id: string, by: strin
 
   // Supersede other pending recommendations for the same target and mark the incident as mitigating.
   const scenarioTarget = rec.affectedAssetIds[0];
+  const isOrder = rec.scenarioId === PURCHASE_ORDER;
   for (const other of state.recommendations) {
+    if (isOrder || other.scenarioId === PURCHASE_ORDER) continue;
     if (other.id !== rec.id && other.status === "pending" && other.affectedAssetIds[0] === scenarioTarget) other.status = "superseded";
   }
-  for (const inc of state.incidents) {
-    if (inc.status !== "resolved" && rec.affectedAssetIds.includes(inc.assetId)) inc.status = "mitigating";
+  if (!isOrder) {
+    for (const inc of state.incidents) {
+      if (inc.status !== "resolved" && rec.affectedAssetIds.includes(inc.assetId)) inc.status = "mitigating";
+    }
   }
   return rec;
 }
@@ -215,6 +228,17 @@ export function rollbackRecommendation(state: FactoryState, id: string, by: stri
         notes.push(`${d.id} already ${d.status}`);
       }
     }
+  }
+  for (const action of rec.actions) {
+    if (action.type !== "place-order" || !action.params.poId) continue;
+    const item = state.inventory.find((i) => i.id === action.params.itemId);
+    const idx = item ? item.inbound.findIndex((b) => b.poId === action.params.poId) : -1;
+    if (item && idx >= 0) {
+      item.inbound.splice(idx, 1);
+      notes.push(`${action.params.poId} cancelled`);
+      const step = rec.execution.steps.find((s) => s.actionId === action.id);
+      if (step) step.status = "rolled-back";
+    } else notes.push(`${action.params.poId} already received`);
   }
   rec.status = "rolled-back";
   rec.execution.status = "rolled-back";

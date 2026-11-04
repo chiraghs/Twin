@@ -394,8 +394,8 @@ function ReviewCard({ state, review }: { state: FactoryState; review: VisionRevi
     <div className={cn("rounded-xl border bg-surface p-3.5", pending ? "border-warning/40" : "border-line")} data-testid="vision-review">
       <div className="flex flex-wrap items-center gap-2">
         <span className="font-mono text-[12px] text-ink">{review.id}</span>
-        <Badge tone={review.source === "ai" ? "agent" : review.source === "opencv" ? "accent" : "neutral"}>
-          {review.source === "ai" ? `AI · ${review.model ?? "model"}` : review.source === "opencv" ? (review.model ?? "OpenCV · vision service") : "Station inspection log"}
+        <Badge tone={review.source === "ai" || review.source === "aoi" ? "agent" : review.source === "opencv" ? "accent" : "neutral"}>
+          {review.source === "ai" ? `AI · ${review.model ?? "model"}` : review.source === "aoi" ? (review.model ?? "AOI · intelligence backend") : review.source === "opencv" ? (review.model ?? "OpenCV · vision service") : "Station inspection log"}
         </Badge>
         {review.cameraId && <Badge tone="accent">{review.cameraId}</Badge>}
         <span className="text-[11.5px] text-muted">{fmtSimTime(state, review.hour)}</span>
@@ -426,7 +426,7 @@ function ReviewCard({ state, review }: { state: FactoryState; review: VisionRevi
                   <td className="py-1.5 pr-3">
                     <Badge tone={SEVERITY_TONE[f.severity]}>{f.severity}</Badge>
                   </td>
-                  <td className="tabular py-1.5 text-right text-ink-2">{review.source === "ai" ? `${Math.round(f.confidence * 100)}%` : review.source === "opencv" ? "measured" : "logged"}</td>
+                  <td className="tabular py-1.5 text-right text-ink-2">{review.source === "ai" || review.source === "aoi" ? `${Math.round(f.confidence * 100)}%` : review.source === "opencv" ? "measured" : "logged"}</td>
                 </tr>
               ))}
             </tbody>

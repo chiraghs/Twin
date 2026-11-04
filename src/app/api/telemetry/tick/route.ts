@@ -2,6 +2,7 @@ import { liveTick } from "@/domain/commands";
 import { applyExternalReadings } from "@/domain/telemetry";
 import { json, nowISO, route } from "@/server/http";
 import { mqtt } from "@/server/integrations/adapters";
+import { syncIfDue } from "@/server/intelligence";
 import { getState, mutate } from "@/server/store";
 
 export const dynamic = "force-dynamic";
@@ -21,5 +22,6 @@ export const POST = route(async () => {
     return moved;
   });
   const state = getState();
+  syncIfDue(state); // background: intelligence features, when any is on
   return json({ advanced, state });
 });

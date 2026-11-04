@@ -34,6 +34,10 @@ async def data_model() -> dict[str, Any]:
                      ("ai_calls", "Every Meta Model API call (web and backend)."), ("ai_interactions", "AI-written answers with grounding status."),
                      ("schema_migrations", "Applied migrations per component.")]
     ]
+    from backend.features.twin_bridge.store import TABLE_DESCRIPTIONS, ensure_tables
+
+    ensure_tables()
+    shared += [{"table": t, "feature": "twin_bridge", "description": d, "rows": _count(t)} for t, d in TABLE_DESCRIPTIONS.items()]
     return {"database": db_path(), "tables": tables, "platform_tables": shared}
 
 

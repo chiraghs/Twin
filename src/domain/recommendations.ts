@@ -178,8 +178,12 @@ export const RECOMMENDATION_LIMIT = 20;
  * Put a new recommendation on the live state: pending recommendations for the same target (first
  * affected asset) are superseded, the new one goes first and the list is capped.
  */
+export const PURCHASE_ORDER = "purchase-order";
+
 export function addRecommendation(state: FactoryState, rec: Recommendation): Recommendation {
   for (const other of state.recommendations) {
+    // Purchase orders are about materials, not machines: they never supersede (or get superseded by) machine plans.
+    if (rec.scenarioId === PURCHASE_ORDER || other.scenarioId === PURCHASE_ORDER) continue;
     if (other.status === "pending" && other.affectedAssetIds[0] === rec.affectedAssetIds[0]) other.status = "superseded";
   }
   state.recommendations.unshift(rec);

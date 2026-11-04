@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
 import { AlertTriangle, RefreshCw } from "lucide-react";
 import { useEnsureLoaded, useLiveClock } from "@/client/hooks";
 import { useFactory } from "@/client/store";
@@ -15,6 +16,13 @@ import { CopilotPanel } from "@/components/copilot/copilot-panel";
 
 export default function PlatformLayout({ children }: { children: React.ReactNode }) {
   const [navOpen, setNavOpen] = useState(false);
+  const pathname = usePathname();
+  // Remembered so full-screen pages (Twin Builder) can offer "Back" to the page the user came from.
+  useEffect(() => {
+    try {
+      sessionStorage.setItem("twin:last-page", pathname);
+    } catch {}
+  }, [pathname]);
   useEnsureLoaded();
   useLiveClock();
   const state = useFactory((s) => s.state);

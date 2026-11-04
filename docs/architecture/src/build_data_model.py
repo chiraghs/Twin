@@ -27,6 +27,7 @@ web_desc.update({
 })
 import backend.main  # noqa: F401  (registers every backend table)
 from backend.core.db.persistent import registry
+from backend.features.twin_bridge.store import TABLE_DESCRIPTIONS as twin_desc
 
 be = {name: spec for name, spec in registry().items()}
 shared = {
@@ -61,6 +62,7 @@ for t in tables:
     if t in be:
         be_by_feature.setdefault(be[t].feature or "backend", []).append(t)
 plat = [t for t in tables if t in shared]
+twin_tables = [t for t in tables if t in twin_desc]
 
 md = [f"""# Twin data model (SQLite)
 
@@ -117,6 +119,9 @@ md.append(section("Factory twin, settings, preferences and copilot", web_tables,
 md.append("## Intelligence backend (component `backend`)\n")
 for feature, names in sorted(be_by_feature.items()):
     md.append(section(feature.replace("_", " ").capitalize(), names, lambda t: be[t].description))
+md.append("## Twin bridge (backend features on the web twin's plant)\n")
+md.append("Written by `POST /api/v1/twin/sync` while a feature is on (Admin → Features); keyed by the web app's `facility_id`.\n\n")
+md.append(section("Snapshots, insights and their history", twin_tables, lambda t: twin_desc[t]))
 md.append("## Shared platform tables\n")
 md.append(section("Migrations, AI activity and configuration", plat, lambda t: shared[t]))
 md.append("""## API → table map (writes)
@@ -136,6 +141,10 @@ md.append("""## API → table map (writes)
 | `POST /api/v1/forecasts/run` · `/scenarios/simulate` · `/data/ingest` · `/production/plan/generate` · `GET /production/brief` | `df_forecast_runs` · `df_scenarios` · `df_demand_history`, `df_quarantine`, `df_ingest_batches` · `df_production_plans` · `df_planning_briefs` |
 | `GET /api/v1/copilot/shift-handover/:line` · `/alarm-triage/:asset/:code` | `oc_shift_handovers` · `oc_alarm_triages` |
 | `PUT /api/v1/*/config` (7 features) | `app_config`, `app_config_history` |
+| `POST /api/v1/twin/sync` (every 15 s while a feature is on) | `tw_snapshots`, `tw_insights`, `tw_asset_health`, `tw_stock_levels`, `tw_demand_history` |
+| `POST /api/v1/twin/:facility/inspect` · `/inspections/:id/disposition` | `tw_inspections`, `vq_inspections`, `vq_defects` · `tw_inspections` |
+| `PUT /api/intelligence` (feature on/off) | `app_settings`, `app_settings_history`, `audit_entries` |
+| `POST /api/intelligence/propose` | `scenario_runs`, `recommendations`, `audit_entries` |
 """)
 out = ROOT / "docs" / "data-model.md"
 out.write_text("\n".join(md))
