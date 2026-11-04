@@ -109,8 +109,17 @@ const DRAFT_SCHEMA = {
       type: "array",
       items: {
         type: "object",
-        properties: { name: { type: "string" }, unit: { type: "string" }, unitCost: nnum, leadTimeHours: nnum, source: { type: "string", enum: SOURCES }, note: nstr },
-        required: ["name", "unit", "unitCost", "leadTimeHours", "source", "note"],
+        properties: {
+          name: { type: "string" },
+          unit: { type: "string" },
+          unitCost: nnum,
+          leadTimeHours: nnum,
+          supplier: { type: ["string", "null"], description: "Supplier name only when the requirements or the drawing state it; otherwise null." },
+          onHand: { type: ["number", "null"], description: "Stock on hand only when stated; otherwise null." },
+          source: { type: "string", enum: SOURCES },
+          note: nstr,
+        },
+        required: ["name", "unit", "unitCost", "leadTimeHours", "supplier", "onHand", "source", "note"],
       },
     },
     integrations: {
@@ -283,7 +292,7 @@ export function builderAi(): BuilderAi {
         ARCHETYPE_CATALOG,
         "- The simulator supports 1–4 process lines and at most one packing / end-of-line area (role \"packing\") that receives all process-line output. List machines in material-flow order, at most 8 per line. Represent parallel identical machines as one machine with their combined rate and say so in `note`.",
         "- Provenance (`source`): \"blueprint\" only for elements on the blueprint reading (set `blueprintElement` to its id); \"requirement\" for what the user asked for; \"reference\" only when supported by the research notes, citing their [R#] ids in `refs`; \"template\" for elements kept from the given template; otherwise \"default\" for your own typical assumptions.",
-        "- Numbers: give ratePerHour, prices and costs ONLY when stated in the requirements, the blueprint or the cited research; otherwise use null and the system will derive stated defaults. Never invent supplier names, addresses or credentials.",
+        "- Numbers: give ratePerHour, prices, costs, lead times and stock on hand ONLY when stated in the requirements, the blueprint or the cited research; otherwise use null and the system will derive stated defaults. Copy supplier names exactly when the requirements state them; never invent supplier names, addresses or credentials.",
         "- Integrations: only connections the user asked for or that the blueprint shows (PLC, SCADA, historian, cameras). `target` is a line name, a machine name, or \"site\". If the user asks to monitor something without naming the protocol, pick the most likely interface, set source to \"default\" and explain the choice in `note`.",
         "- Mobile robots: add `mobileRobots` ONLY if the requirements or the blueprint mention AMRs, AGVs, automated forklifts, tuggers or mobile robots; never add them on your own. Map each fleet to one move (kitting, line-transfer or finished-goods), the line it serves, and the count stated (if no count is stated, use 1 and say so in `note`). Mark them \"requirement\" or \"blueprint\". If a requested move is not one of these three, leave it out and say so in `assumptions`.",
         "- Put every assumption you make in `assumptions`, and ask up to 6 short `questions` where information that matters is missing.",

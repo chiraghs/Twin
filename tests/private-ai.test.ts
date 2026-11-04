@@ -1,4 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+// Never write test calls into the developer's AI call log (.data/twin.db).
+vi.mock("@/server/db/ai-log", () => ({ logAiCall: vi.fn() }));
 import { z } from "zod";
 import { runBuilder, type BuilderEvent } from "@/domain/builder/pipeline";
 import { extractJson, openJson } from "@/server/private-ai/baseten";

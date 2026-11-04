@@ -117,6 +117,9 @@ export const DraftSchema = z.object({
         unit: z.string().max(20),
         unitCost: nullableNum,
         leadTimeHours: nullableNum,
+        /** Only when the requirements or the drawing name them (never invented). */
+        supplier: z.string().max(80).nullable().optional(),
+        onHand: z.number().finite().min(0).nullable().optional(),
         source: SOURCE,
         note: z.string().max(300).nullable(),
       }),
@@ -188,7 +191,7 @@ export function specFromDraft(
   for (const m of draft.materials) {
     const id = uniqueId(m.name, taken);
     materialByName.set(m.name, id);
-    materials.push({ id, name: m.name, unit: m.unit || "pcs", onHand: null, unitCost: m.unitCost, leadTimeHours: m.leadTimeHours, supplier: null, prov: prov(m.source, m.note) });
+    materials.push({ id, name: m.name, unit: m.unit || "pcs", onHand: m.onHand ?? null, unitCost: m.unitCost, leadTimeHours: m.leadTimeHours, supplier: m.supplier?.trim() || null, prov: prov(m.source, m.note) });
   }
   const ensureProduct = (name: string, note: string): string => {
     const hit = [...productByName.entries()].find(([n]) => near(n, name));

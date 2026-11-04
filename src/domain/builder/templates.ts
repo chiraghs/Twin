@@ -200,7 +200,56 @@ export const TEMPLATES: TwinTemplate[] = [
       ["Rates are in blisters per hour. Batch steps (granulation, drying) are approximated as continuous flow."],
     ),
   },
+  {
+    id: "electric-motors-fans",
+    name: "Electric motors & fans",
+    industry: "Electrical appliances",
+    description: "Induction and BLDC motor lines (stamping, winding, varnish, rotor, shaft, test) feeding fan assembly, AOI and packing.",
+    keywords: ["fan", "ceiling fan", "electric motor", "bldc", "winding", "stator", "rotor", "lamination"],
+    spec: fansSpec(),
+  },
 ];
+
+/** The AeroBreeze Fans demo plant (Bengaluru): fictional suppliers, stock sized so the imported bearings run short. */
+function fansSpec(): TwinSpec {
+  const mat = (id: string, name: string, unit: string, unitCost: number, leadTimeHours: number, onHand: number, supplier: string): SpecMaterial => ({ id, name, unit, onHand, unitCost, leadTimeHours, supplier, prov: T });
+  const s = spec(
+    "AeroBreeze Fans",
+    "Electrical appliances",
+    "Ceiling fans: induction and BLDC motors, assembly and packing",
+    [
+      line("motor-a", "Motor Line A · Induction", "process", [["Lamination press LP-01", "press", 160], ["Stator winding cell WC-02", "workstation", 160], ["Varnish curing oven VO-03", "oven", 170], ["Rotor die-casting cell RD-04", "molder", 165], ["Shaft CNC lathe SC-05", "cnc", 160], ["Rotor assembly robot RA-06", "robot", 150], ["Motor run-in test RT-07", "camera", 155]], ["ab-1200"]),
+      line("motor-b", "Motor Line B · BLDC", "process", [["Lamination press LP-11", "press", 110], ["Stator winding cell WC-12", "workstation", 105], ["Varnish curing oven VO-13", "oven", 110], ["Shaft CNC lathe SC-15", "cnc", 108], ["PCB & rotor assembly robot RA-16", "robot", 100], ["BLDC run-in test RT-17", "camera", 104]], ["ab-bldc-900"]),
+      line("assembly", "Fan Assembly & Packing", "packing", [["Blade balancing BB-21", "workstation", 280], ["Final assembly FA-22", "workstation", 270], ["AOI inspection AOI-23", "camera", 300], ["Carton packer CP-24", "packager", 280], ["Labeler LB-25", "labeler", 320], ["Palletizer PZ-26", "palletizer", 300]]),
+    ],
+    [
+      product("ab-1200", "AeroBreeze 1200 ceiling fan", "fans", 150, 38, 19, [["cu-wire", 0.35], ["crno-steel", 1.6], ["al-alloy", 0.9], ["brg-6202", 2], ["cap-25", 1], ["blade-set", 1], ["carton", 1]]),
+      product("ab-bldc-900", "AeroBreeze BLDC 900 fan", "fans", 100, 62, 33, [["cu-wire", 0.28], ["crno-steel", 1.3], ["brg-6202", 2], ["bldc-pcb", 1], ["blade-set", 1], ["carton", 1]]),
+    ],
+    [
+      mat("cu-wire", "Enamelled copper winding wire", "kg", 9.5, 72, 9000, "Shakti Wires (demo)"),
+      mat("crno-steel", "CRNO lamination steel", "kg", 1.4, 120, 80000, "Kaveri Steel (demo)"),
+      mat("al-alloy", "Aluminium die-cast alloy LM6", "kg", 3.2, 96, 20000, "Deccan Alloys (demo)"),
+      mat("brg-6202", "6202-2RS ball bearing (imported)", "pcs", 0.85, 144, 12000, "Nippon Seiki Bearings (demo)"),
+      mat("cap-25", "2.5 µF run capacitor", "pcs", 0.4, 48, 30000, "Mysore Electro (demo)"),
+      mat("bldc-pcb", "BLDC driver board", "pcs", 6.5, 120, 16000, "Peenya Electronics (demo)"),
+      mat("blade-set", "Steel blade set (3 blades)", "sets", 2.8, 48, 30000, "Hosur Pressings (demo)"),
+      mat("carton", "5-ply fan carton", "pcs", 0.45, 24, 20000, "Corrupak Bengaluru (demo)"),
+    ],
+    ["Suppliers are fictional demo names. Imported bearings have the longest lead time and the thinnest cover."],
+  );
+  s.site.location = "Peenya Industrial Area, Bengaluru";
+  s.integrations = [
+    { id: "int-lp01", target: "motor-a-m1", kind: "opcua", address: "opc.tcp://10.20.1.11:4840", notes: "Press PLC", prov: T },
+    { id: "int-wc02", target: "motor-a-m2", kind: "mqtt", address: "mqtt://plant-broker:1883/aerobreeze/wc-02", notes: "Winding tension and temperature", prov: T },
+    { id: "int-aoi23", target: "assembly-m3", kind: "camera-rtsp", address: "rtsp://10.20.3.23/stream1", notes: "AOI camera", prov: T },
+  ];
+  s.mobileRobots = [
+    { id: "amr-kitting-a", name: "Kitting AMRs Motor Line A", robotType: "amr", mission: "kitting", lineId: "motor-a", count: 2, unitsPerTrip: null, speedMps: null, trigger: { kind: "output", everyMinutes: null }, route: [], prov: T },
+    { id: "agv-fg", name: "Finished-goods forklift AGV", robotType: "forklift-agv", mission: "finished-goods", lineId: null, count: 1, unitsPerTrip: null, speedMps: null, trigger: { kind: "output", everyMinutes: null }, route: [], prov: T },
+  ];
+  return s;
+}
 
 export const templateById = (id: string) => TEMPLATES.find((t) => t.id === id) ?? null;
 

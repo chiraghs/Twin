@@ -39,7 +39,7 @@ const DRAFT_SHAPE = `{
   ],
   "products": [ { "name": "", "unit": "pcs", "ratePerHour": null, "unitPrice": null, "unitMaterialCost": null, "source": "${SOURCES}",
                   "note": null, "refs": [], "materials": [ { "material": "material name", "qtyPerUnit": 1 } ] } ],
-  "materials": [ { "name": "", "unit": "pcs", "unitCost": null, "leadTimeHours": null, "source": "${SOURCES}", "note": null } ],
+  "materials": [ { "name": "", "unit": "pcs", "unitCost": null, "leadTimeHours": null, "supplier": "only if stated, else null", "onHand": null, "source": "${SOURCES}", "note": null } ],
   "integrations": [ { "target": "line name, machine name or site", "kind": "one of: ${INTEGRATION_KINDS.join(", ")}", "address": null, "note": null, "source": "${SOURCES}" } ],
   "mobileRobots": [ { "name": "", "robotType": "one of: ${ROBOT_TYPES.join(", ")}", "mission": "one of: ${ROBOT_MISSIONS.join(", ")}", "line": "process line name or null",
                       "count": 1, "unitsPerTrip": null, "source": "${SOURCES}", "note": null } ],
