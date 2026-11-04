@@ -368,7 +368,9 @@ test("browser preferences are stored on the server per client", async ({ request
 test("intelligence features: off by default, admin turns one on, its analytics page and agent evidence follow", async ({ page, request }) => {
   const list = (await (await request.get("/api/intelligence")).json()) as { features: { id: string; enabled: boolean }[] };
   for (const f of list.features) expect(f.enabled).toBe(false);
-  expect((await request.get("/api/intelligence/maintenance/analytics")).status()).toBe(409);
+  const off = await request.get("/api/intelligence/maintenance/analytics");
+  expect(off.ok()).toBeTruthy();
+  expect(((await off.json()) as { enabled: boolean }).enabled).toBe(false);
   await page.goto("/analytics/maintenance", { waitUntil: "domcontentloaded" });
   await expect(page.getByText("Predictive maintenance is off")).toBeVisible();
 

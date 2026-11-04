@@ -372,7 +372,7 @@ Design details: [docs/architecture.md § 7](docs/architecture.md#7-agentic-layer
 | `GET /api/audit` · `GET /api/kpis` · `GET /api/integrations` · `POST /api/integrations/test` | Audit, KPIs, integration status (with each setting's source) and tests |
 | `GET/PUT /api/intelligence` | The four features: on/off (PUT is admin), last sync, headline counts |
 | `GET/PUT /api/intelligence/:feature/config` | A feature's backend configuration and history (PUT is admin) |
-| `GET /api/intelligence/:feature/analytics` | Data for the feature's Analytics page (409 while the feature is off) |
+| `GET /api/intelligence/:feature/analytics` | Data for the feature's Analytics page (`enabled: false` while the feature is off) |
 | `POST /api/intelligence/propose` | `{kind: "maintenance", assetId}` or `{kind: "purchase-order", itemId}` → a pending recommendation |
 | `POST /api/intelligence/vision/inspect` | Multipart `file` + `cameraId` (+ `productId`): AOI inspection stored as a visual review |
 | `PUT /api/integrations/settings` | Change integration settings (admin): `{values: {KEY: "value" \| "" \| null}}`; `""` turns a setting off, `null` returns it to the deployment value |

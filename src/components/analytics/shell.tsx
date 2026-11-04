@@ -33,7 +33,7 @@ export function AnalyticsShell<I>({
   description: string;
   children: (data: AnalyticsPayload<I> & { insights: I }, reload: () => Promise<void>) => React.ReactNode;
 }) {
-  const { data, error, status, loading, reload } = useJson<AnalyticsPayload<I>>(`/api/intelligence/${feature}/analytics`, 15_000);
+  const { data, error, loading, reload } = useJson<AnalyticsPayload<I>>(`/api/intelligence/${feature}/analytics`, 15_000);
   const engine = (data?.insights as { engine?: string } | null)?.engine;
   return (
     <div className="animate-fade-in">
@@ -46,7 +46,7 @@ export function AnalyticsShell<I>({
           </Button>
         }
       />
-      {status === 409 ? (
+      {data?.enabled === false ? (
         <Card>
           <CardBody>
             <EmptyState

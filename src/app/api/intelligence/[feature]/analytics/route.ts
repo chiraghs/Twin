@@ -16,7 +16,8 @@ export const GET = route(async (_req: Request, { params }: Ctx) => {
   if (!(FEATURE_IDS as readonly string[]).includes(id)) throw new DomainError(`Unknown feature ${id}`, 404);
   const feature = id as FeatureId;
   if (!featureEnabled(feature)) {
-    return json({ feature, enabled: false, message: `${FEATURE_META[feature].name} is off. An admin can turn it on in Admin → Features.` }, 409);
+    // A normal state, not an error: the page explains how to turn the feature on.
+    return json({ feature, enabled: false, insights: null, message: `${FEATURE_META[feature].name} is off. An admin can turn it on in Admin → Features.` });
   }
   const state = getState();
   if (feature !== "vision" && !cachedInsights(state.profile.id)?.[feature]) await syncNow(state);
