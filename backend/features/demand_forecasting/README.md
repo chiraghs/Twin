@@ -1,6 +1,6 @@
 # Manufacturing Demand Forecasting & Intelligent Operations Platform
 
-An enterprise-grade, constraint-aware manufacturing demand forecasting and operational planning platform built with **FastAPI**, scikit-learn forecasting, an optional **BigQuery** lakehouse and **Streamlit**, with **Meta's Muse Wonder** writing grounded S&OP planning briefs (`GET /api/v1/production/brief`).
+An enterprise-grade, constraint-aware manufacturing demand forecasting and operational planning platform built with **FastAPI**, scikit-learn forecasting, **SQLite** persistence with **DuckDB** analytics and **Streamlit**, with **Meta's Muse Wonder** writing grounded S&OP planning briefs (`GET /api/v1/production/brief`).
 
 ![Demand forecasting architecture](../../../docs/architecture/demand-forecasting.png)
 
@@ -58,18 +58,16 @@ $$\text{Suggested order quantity} = (\text{Target safety stock} \times 1.5) + (\
 
 ---
 
-## 3. Technology Stack & GCP Architecture
+## 3. Technology Stack
 
 | Layer | Technology | Purpose |
 |---|---|---|
 | **API Backend** | Python 3.12+, FastAPI, Pydantic | REST APIs, business validation, planning engine |
-| **Data Lakehouse** | Google Cloud BigQuery | Partitioned/clustered tables for demand, orders, capacity, inventory, and quality |
-| **Raw Storage** | Google Cloud Storage (GCS) | Staging bucket for incoming CSV/JSON batch files and quarantine dumps |
-| **Streaming / Triggers**| Google Cloud Pub/Sub | Real-time event notifications and pipeline triggers |
+| **System of record** | SQLite (`df_` tables in the shared `twin.db`) | Demand, orders, capacity, inventory, quality, forecast runs and planning briefs |
+| **Analytics** | DuckDB (`backend/core/analytics`) | Reports such as monthly demand by product over a snapshot of the SQLite tables |
 | **Machine Learning** | Scikit-Learn (in the backend container) | Champion GBDT with lag/calendar features vs Seasonal-Naive baseline |
 | **AI briefing** | Meta Model API · Muse Wonder (`muse-wonder-1.0`) | S&OP brief from the plan, bottlenecks, stock-out risks and replenishment; grounding-checked, deterministic fallback |
-| **Deployment** | Google Cloud Run | Serverless autoscaling containerized backend |
-| **IaC** | Terraform (`infra/terraform/demand_forecasting.tf`)| Automated provisioning of BigQuery, GCS, Pub/Sub, Cloud Run, and Cloud Scheduler |
+| **Deployment** | Docker Compose (`backend` service) | Runs next to the web app on the shared database volume |
 | **Operations Cockpit** | Streamlit (`dashboard/demand_forecasting_app.py`)| Interactive 8-tab manufacturing operations dashboard |
 
 ---
@@ -130,22 +128,12 @@ uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
 streamlit run dashboard/demand_forecasting_app.py --server.port 8501
 ```
 
-### Google Cloud Platform Deployment
-1. **Deploy Infrastructure with Terraform**:
-   ```bash
-   cd infra/terraform
-   terraform init
-   terraform apply -target=module.demand_forecasting
-   ```
-2. **Build and Deploy Container to Cloud Run**:
-   ```bash
-   gcloud builds submit --tag gcr.io/$PROJECT_ID/manufacturing-backend:latest
-   gcloud run deploy manufacturing-backend \
-     --image gcr.io/$PROJECT_ID/manufacturing-backend:latest \
-     --platform managed \
-     --region us-central1 \
-     --set-env-vars GCP_PROJECT_ID=$PROJECT_ID,BIGQUERY_DATASET=manufacturing_lakehouse
-   ```
+### Docker Compose
+```bash
+docker compose up --build backend   # from the repository root
+```
+
+At scale, the same tables move to PostgreSQL and the analytics to ClickHouse or Iceberg + Trino/Presto; see "Scaling to market standards" in the top-level README.
 
 ---
 
@@ -158,7 +146,7 @@ PYTHONPATH=. python3 backend/tests/demand_forecasting/test_demand_forecasting.py
 ```
 
 ### Test Coverage Highlights:
-- ✅ Master Data & 24-Month Demand History Lakehouse Repo Initialization
+- ✅ Master Data & 24-Month Demand History Repository Initialization
 - ✅ ML Time-Series Forecasting Engine & Out-of-Time Metrics (MAE, RMSE, WAPE, Bias, MAPE)
 - ✅ Prediction Uncertainty Intervals ($P_{10} \le P_{50} \le P_{90}$)
 - ✅ Net Requirements Calculation: $\max(0, \text{Demand} + \text{SafetyStock} - \text{UsableStock} - \text{ConfirmedSupply})$

@@ -62,8 +62,6 @@ export interface ChatResult {
   /** `text` with [R#] markers after the passages each source supports. */
   markedText: string;
   queries: string[];
-  /** Kept for the builder's research panel; Meta returns no search widget. */
-  searchEntryPoint: string | null;
   /** The model that answered. */
   model?: string;
 }
@@ -240,7 +238,7 @@ async function metaChat(cfg: AiConfig, req: ChatRequest): Promise<ChatResult> {
     } else if (item.type === "web_search_call" && item.action?.query) queries.push(item.action.query);
   }
   if (!text && typeof data.output_text === "string") text = marked = data.output_text;
-  return { text, json: req.json ? parseJson(text) : undefined, toolCalls, citations: book.list, markedText: marked, queries, searchEntryPoint: null, model };
+  return { text, json: req.json ? parseJson(text) : undefined, toolCalls, citations: book.list, markedText: marked, queries, model };
 }
 
 /* ───────────────────────────── entry points ───────────────────────────── */

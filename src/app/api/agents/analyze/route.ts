@@ -2,7 +2,6 @@ import { commitAnalysis, runAnalysisPipeline, type PipelineEvent } from "@/domai
 import type { FactoryState } from "@/domain/types";
 import { generateNarrative } from "@/server/ai/provider";
 import { json, ndjsonResponse, nowISO, route } from "@/server/http";
-import { mirrorScenarioRun } from "@/server/integrations/status";
 import { getState, mutate } from "@/server/store";
 
 export const dynamic = "force-dynamic";
@@ -44,7 +43,6 @@ async function* analysis(snapshot: FactoryState, fast: boolean): AsyncGenerator<
       yield { type: "discarded", reason: "Factory was reset during analysis; results were not committed." };
     } else {
       mutate((s) => commitAnalysis(s, bundle, nowISO()));
-      if (bundle.scenarioRun) void mirrorScenarioRun(bundle.scenarioRun, live.profile.id);
       yield { type: "committed", state: getState() };
     }
   } finally {

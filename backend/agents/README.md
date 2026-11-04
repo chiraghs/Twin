@@ -16,7 +16,7 @@ backend/agents/
 │   ├── quality_supervisor.py       # Investigates scrap spikes and correlates with sensor anomalies
 │   ├── production_supervisor.py    # Analyzes throughput bottlenecks and evaluates reroutes
 │   └── supply_supervisor.py        # Identifies buffer stockouts and recommends purchase orders
-├── state/           # State graphs and session persistence (LangGraph / ADK state machines)
+├── state/           # State graphs and session persistence (state machines)
 └── governance/      # Human-In-The-Loop (HITL) gate, proposal validation, and immutable audit logs
 ```
 

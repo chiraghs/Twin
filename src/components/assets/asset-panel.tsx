@@ -406,7 +406,7 @@ function Documents({ asset }: { asset: Asset }) {
   return (
     <div className="space-y-2">
       <p className="text-[11px] text-muted">{data?.store ?? "Loading…"}</p>
-      {data?.remoteError && <p className="text-[11px] text-critical-ink">Cloud Storage: {data.remoteError}</p>}
+      {data?.remoteError && <p className="text-[11px] text-critical-ink">Object storage: {data.remoteError}</p>}
       {data && !data.documents.length && <p className="text-[12px] text-muted">No documents linked to this asset type.</p>}
       {data?.documents.map((d) => (
         <button key={d.id} onClick={() => view(d)} className="flex w-full items-start gap-2.5 rounded-lg border border-line bg-shell/60 p-2.5 text-left hover:border-line-strong">

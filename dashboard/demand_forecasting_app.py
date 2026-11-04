@@ -53,7 +53,7 @@ with h_col1:
     st.caption("AI-Powered Multi-Horizon Forecasting, Net Production Requirements, Capacity Constraints & What-If Simulation")
 
 with h_col2:
-    st.success("🟢 **DATA MODE: ENTERPRISE LIVE**\nConnected to BigQuery Lakehouse & ERP/MES Ingestion")
+    st.success("🟢 **DATA MODE: ENTERPRISE LIVE**\nConnected to the shared SQLite data model & ERP/MES ingestion")
 
 st.divider()
 
@@ -371,7 +371,7 @@ with tab_whatif:
 # ==============================================================================
 with tab_ingest:
     st.subheader("📥 Data Ingestion, Schema Validation & Quarantines")
-    st.caption("Upload raw CSV or JSON manufacturing records for schema compliance, deduplication, and BigQuery loading.")
+    st.caption("Upload raw CSV or JSON manufacturing records for schema compliance, deduplication, and loading into SQLite.")
 
     dq = data_ingestion_service.get_data_quality_report()
     dq1, dq2, dq3 = st.columns(3)

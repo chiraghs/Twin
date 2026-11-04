@@ -1,4 +1,4 @@
-"""Pydantic schemas and domain contracts for Manufacturing Demand Forecasting on GCP."""
+"""Pydantic schemas and domain contracts for Manufacturing Demand Forecasting."""
 from datetime import datetime, date, timezone
 from enum import Enum
 from typing import Any, Optional

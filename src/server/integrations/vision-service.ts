@@ -4,9 +4,9 @@ import { setting } from "@/server/settings";
 /**
  * Client for the Python vision service (services/vision, FastAPI + OpenCV).
  *
- * Local:     VISION_SERVICE_URL=http://localhost:8000 (no auth).
- * Cloud Run: deploy the service with --no-allow-unauthenticated and grant the web app's service
- *            account roles/run.invoker; requests carry a Google-signed ID token for the service URL.
+ * Local:   VISION_SERVICE_URL=http://localhost:8080 (no auth).
+ * Compose: VISION_SERVICE_URL=http://vision:8080 and the same VISION_SERVICE_TOKEN on both sides;
+ *          requests carry Authorization: Bearer <token>.
  */
 
 export const visionService = {
@@ -14,22 +14,10 @@ export const visionService = {
   configured: () => !!setting("VISION_SERVICE_URL"),
 };
 
-const isLocal = (u: string) => {
-  try {
-    const h = new URL(u).hostname;
-    return h === "localhost" || h === "127.0.0.1" || h === "::1" || h.endsWith(".local");
-  } catch {
-    return false;
-  }
-};
-
-async function authHeaders(base: string): Promise<Record<string, string>> {
-  if (isLocal(base) || setting("VISION_SERVICE_AUTH") === "none") return {};
-  const { GoogleAuth } = await import("google-auth-library");
-  const client = await new GoogleAuth().getIdTokenClient(base);
-  const h = (await client.getRequestHeaders()) as unknown;
-  const authz = h instanceof Headers ? h.get("authorization") : ((h as Record<string, string>).Authorization ?? (h as Record<string, string>).authorization);
-  return authz ? { Authorization: authz } : {};
+/** Shared bearer token (VISION_SERVICE_TOKEN), when the service requires one. */
+async function authHeaders(_base: string): Promise<Record<string, string>> {
+  const token = setting("VISION_SERVICE_TOKEN");
+  return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
 export class VisionServiceError extends Error {
@@ -63,7 +51,7 @@ async function call<T>(path: string, init: { method: "GET" | "POST"; body?: Form
   try {
     data = text ? JSON.parse(text) : null;
   } catch {
-    /* non-JSON error page (e.g. a 403 from Cloud Run IAM) */
+    /* non-JSON error page (e.g. a 403 from a reverse proxy) */
   }
   if (!res.ok) {
     const detail = (data as { detail?: unknown } | null)?.detail;

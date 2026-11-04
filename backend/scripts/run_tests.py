@@ -17,7 +17,7 @@ from backend.features.predictive_maintenance.services.machine_service import Mac
 
 async def run_all_checks():
     print("==================================================================")
-    print("🔍 RUNNING GCP PREDICTIVE MAINTENANCE PLATFORM VERIFICATION")
+    print("🔍 RUNNING TWIN BACKEND VERIFICATION")
     print("==================================================================")
 
     # 1. Simulator & Physics Check

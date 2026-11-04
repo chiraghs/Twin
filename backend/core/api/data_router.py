@@ -66,3 +66,21 @@ async def ai_activity(limit: int = Query(30, ge=1, le=200)) -> dict[str, Any]:
         "SELECT feature, subject_id, question, language, generated_by, created_at FROM ai_interactions ORDER BY id DESC LIMIT ?", (limit,)
     ).fetchall()
     return {"calls": [dict(r) for r in calls], "answers": [dict(r) for r in answers]}
+
+
+@router.get("/analytics")
+async def analytics_reports() -> list[dict[str, str]]:
+    """Predefined DuckDB analytics reports over the shared SQLite database."""
+    from backend.core.analytics.duckdb_reports import REPORTS
+
+    return [{"id": k, "title": v["title"]} for k, v in REPORTS.items()]
+
+
+@router.get("/analytics/{report_id}")
+async def analytics_report(report_id: str) -> dict[str, Any]:
+    from backend.core.analytics.duckdb_reports import run_report
+
+    try:
+        return run_report(report_id)
+    except KeyError:
+        raise HTTPException(404, f"Unknown report {report_id}") from None

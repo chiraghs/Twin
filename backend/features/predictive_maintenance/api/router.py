@@ -134,7 +134,7 @@ router.add_api_route("/machines/{machine_id}/predictions", handle_get_prediction
 router.add_api_route("/predictions/high-risk", handle_get_high_risk, methods=["GET"])
 router.add_api_route("/analytics/summary", handle_get_analytics, methods=["GET"])
 
-# Register on root_router (top-level /machines, /analytics/summary per GCP spec)
+# Register on root_router (top-level /machines, /analytics/summary)
 root_router.add_api_route("/machines", handle_list_machines, methods=["GET"])
 root_router.add_api_route("/machines/{machine_id}", handle_get_machine, methods=["GET"])
 root_router.add_api_route("/machines/{machine_id}/readings", handle_get_readings, methods=["GET"])

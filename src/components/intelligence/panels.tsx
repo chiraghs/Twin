@@ -742,6 +742,59 @@ export function ConfigPanel() {
   );
 }
 
+/* ───────────────────────────── Analytics (DuckDB) ───────────────────────────── */
+
+type Report = { id: string; title: string; columns: string[]; rows: Json[]; engine: string; elapsed_ms?: number; note?: string };
+
+export function AnalyticsPanel() {
+  const list = useBackend<{ id: string; title: string }[]>("api/v1/data/analytics");
+  const [sel, setSel] = useState("demand-monthly");
+  const report = useBackend<Report>(`api/v1/data/analytics/${sel}`, [sel]);
+  const r = report.data;
+  return (
+    <div className="grid gap-3 xl:grid-cols-[220px_1fr]">
+      <Card>
+        <CardBody className="space-y-1">
+          {(list.data ?? []).map((c) => (
+            <button key={c.id} onClick={() => setSel(c.id)} className={`block w-full rounded-lg px-2.5 py-1.5 text-left text-[12.5px] ${sel === c.id ? "bg-accent/12 text-ink" : "text-ink-2 hover:bg-surface-2"}`}>
+              {c.title}
+            </button>
+          ))}
+        </CardBody>
+      </Card>
+      <Card>
+        <CardHeader
+          title={r?.title ?? "Report"}
+          description={r ? `${r.engine} over a snapshot of the SQLite tables${r.elapsed_ms != null ? ` · ${r.elapsed_ms} ms` : ""}` : "DuckDB over the shared SQLite database"}
+          icon={<Database className="h-4 w-4" />}
+          actions={<Button size="sm" onClick={() => void report.reload()} loading={report.loading}>Refresh</Button>}
+        />
+        <CardBody>
+          <Err error={report.error ?? list.error} />
+          {r && r.rows.length ? (
+            <div className="max-h-[480px] overflow-auto">
+              <table className="w-full text-[12px]">
+                <thead className="sticky top-0 bg-surface text-left text-muted">
+                  <tr>{r.columns.map((c) => <th key={c} className="px-2 py-1.5 font-medium">{c.replace(/_/g, " ")}</th>)}</tr>
+                </thead>
+                <tbody>
+                  {r.rows.map((row, i) => (
+                    <tr key={i} className="border-t border-line">
+                      {r.columns.map((c) => <td key={c} className="px-2 py-1 font-mono text-[11.5px] text-ink-2">{row[c] == null ? "—" : String(row[c])}</td>)}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : r ? (
+            <EmptyState title="No rows yet" description={r.note ?? "This report fills in as the backend records data."} />
+          ) : null}
+        </CardBody>
+      </Card>
+    </div>
+  );
+}
+
 function safeJson(raw: string, fallback: unknown) {
   try {
     return JSON.parse(raw);

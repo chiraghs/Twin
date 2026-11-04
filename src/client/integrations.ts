@@ -40,7 +40,7 @@ export interface Integration {
 }
 
 export interface SettingsStorage {
-  kind: "cloud-storage" | "sqlite";
+  kind: "sqlite";
   where: string;
   ok: boolean;
   detail: string | null;
@@ -57,7 +57,6 @@ export interface AiInfo {
 }
 
 export interface IntegrationsPayload {
-  project: SettingView;
   storage: SettingsStorage;
   integrations: Integration[];
   ai?: AiInfo;

@@ -1,0 +1,77 @@
+# Twin on one machine, all open source: web app + intelligence backend + vision service sharing
+# one SQLite database on the `twin-data` volume.
+#
+#   cp .env.example .env      # fill MODEL_API_KEY, TWIN_ADMIN_KEY, INTELLIGENCE_BACKEND_TOKEN
+#   docker compose up --build                                    # web on http://localhost:3000
+#   docker compose --profile mqtt --profile storage up --build   # + Mosquitto and MinIO
+#
+# Scaling past one machine: see "Scaling to market standards" in the README.
+name: twin
+
+services:
+  web:
+    build: .
+    ports: ["3000:3000"]
+    env_file: [{ path: .env, required: false }]
+    environment:
+      TWIN_DATA_DIR: /data
+      TWIN_DEPLOYMENT: ${TWIN_DEPLOYMENT:-local}
+      INTELLIGENCE_BACKEND_URL: http://backend:8000
+      VISION_SERVICE_URL: http://vision:8080
+    volumes: [twin-data:/data]
+    depends_on: [backend, vision]
+    restart: unless-stopped
+
+  backend:
+    build: { context: ., dockerfile: backend/Dockerfile }
+    env_file: [{ path: .env, required: false }]
+    environment:
+      TWIN_DATA_DIR: /data
+    volumes: [twin-data:/data]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 15s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  vision:
+    build: services/vision
+    env_file: [{ path: .env, required: false }]
+    restart: unless-stopped
+
+  # Optional: plant telemetry over MQTT (TELEMETRY_SOURCE=mqtt, MQTT_BROKER_URL=mqtt://mqtt:1883)
+  mqtt:
+    profiles: [mqtt]
+    image: eclipse-mosquitto:2.0.20
+    ports: ["1883:1883"]
+    volumes:
+      - ./infra/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - mqtt-data:/mosquitto/data
+    restart: unless-stopped
+
+  # Optional: S3-compatible document storage (S3_ENDPOINT=http://storage:9000, S3_BUCKET=twin)
+  storage:
+    profiles: [storage]
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    command: server /data --console-address ":9001"
+    ports: ["9000:9000", "9001:9001"]
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY_ID:-twin}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_ACCESS_KEY:-twin-dev-secret}
+    volumes: [storage-data:/data]
+    restart: unless-stopped
+
+  storage-init:
+    profiles: [storage]
+    image: minio/mc:RELEASE.2025-04-16T18-13-26Z
+    depends_on: [storage]
+    environment:
+      MC_HOST_local: http://${S3_ACCESS_KEY_ID:-twin}:${S3_SECRET_ACCESS_KEY:-twin-dev-secret}@storage:9000
+    command: ["mb", "--ignore-existing", "local/${S3_BUCKET:-twin}"]
+    restart: on-failure
+
+volumes:
+  twin-data:
+  mqtt-data:
+  storage-data:

@@ -4,7 +4,7 @@
 
 The assistant runs on **Meta's Muse Spark** (grounded answers in any language) and **Muse Wonder** briefs every what-if disruption simulation; all figures come from the deterministic risk and impact engines.
 
-> **Enterprise-grade, GCP-Powered Autonomous Supply Chain Intelligence Platform**  
+> **Enterprise-grade, Autonomous Supply Chain Intelligence Platform**  
 > Uniting multi-tier supplier delivery tracking, Bill-of-Materials (BOM) downstream plant propagation, in-transit logistics delay detection, governed KPI frameworks, and an AI-powered conversational analytics assistant with what-if disruption simulation.
 
 ---
@@ -41,7 +41,7 @@ Industrial supply chains suffer from fragmented visibility across ERP purchase o
 ┌────────────────────────────────────────────────────────────────────────────────────────┐
 │                        INGESTION & CANONICAL ONTOLOGY LAYER                            │
 │                                                                                        │
-│   • Google Cloud Pub/Sub (`supply-chain-events` topic)                                 │
+│   • ERP / TMS / WMS connectors and MQTT events                                         │
 │   • Schema Validation, Deduplication, Timestamp Normalization & DLQ Routing            │
 │   • Data Provenance Tagging [ACTUAL vs. SIMULATED vs. ESTIMATED]                       │
 │   • Cross-System Entity Resolution (`Supplier` -> `Part` -> `PO` -> `Shipment`)        │
@@ -49,7 +49,7 @@ Industrial supply chains suffer from fragmented visibility across ERP purchase o
                                        │
                                        ▼
 ┌────────────────────────────────────────────────────────────────────────────────────────┐
-│                         BIGQUERY ENTERPRISE DATA LAKEHOUSE                             │
+│               ENTERPRISE DATA MODEL · SQLite (sc_ tables) + DuckDB                     │
 │                                                                                        │
 │   • dim_supplier                  • fact_inventory_balance       • fact_customer_order │
 │   • dim_part                      • fact_purchase_order          • fact_disruption     │

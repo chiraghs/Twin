@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -e
-echo "Starting GCP Predictive Maintenance Platform in Local Mode..."
+echo "Starting the Twin intelligence backend..."
 
 # 1. Run automated platform verification
 echo "Running automated verification tests..."

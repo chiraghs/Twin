@@ -66,7 +66,7 @@ erDiagram
 | `copilot_messages` | Copilot messages as the model saw them (text, tool calls, tool results). | `session_id` 🔑, `seq` 🔑, `role`, `parts`, `created_at` |
 | `copilot_sessions` | Copilot conversations (model, pending confirmation). | `id` 🔑, `client_id`, `facility_id`, `model`, `pending_confirmation`, `created_at`, `updated_at` |
 | `customer_orders` | Customer orders with due time, quantity and penalties. | `facility_id` 🔑, `id` 🔑, `product_id`, `due_hour`, `priority`, `ord`, `data`, `updated_at` |
-| `data_connections` | Planned data connections (OPC UA, MQTT, Pub/Sub, cameras…). | `facility_id` 🔑, `id` 🔑, `target`, `kind`, `status`, `ord`, `data`, `updated_at` |
+| `data_connections` | Planned data connections (OPC UA, MQTT, cameras…). | `facility_id` 🔑, `id` 🔑, `target`, `kind`, `status`, `ord`, `data`, `updated_at` |
 | `directives` | Operating directives applied to the twin (speed, reroute, maintenance windows). | `facility_id` 🔑, `id` 🔑, `asset_id`, `status`, `kind`, `ord`, `data`, `updated_at` |
 | `facilities` | One row per digital twin (plant): profile, schema version, demo flag. | `id` 🔑, `name`, `industry`, `location`, `production_type`, `data_source`, `is_demo`, `schema_version`, `seed`, `created_at`, `updated_at` |
 | `facility_state` | Singleton parts of a twin: simulation clock, cost model, counters, latest readings, layout, Twin Builder spec. | `facility_id` 🔑, `clock`, `cost_model`, `counters`, `finished_goods`, `latest`, `rule_runtime`, `layout`, `twin_spec`, `sim_hour`, `live_telemetry`, `updated_at` |

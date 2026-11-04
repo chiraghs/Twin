@@ -97,14 +97,14 @@ class RoiIntelligenceService:
         # 4. Platform Operating Cost (Debit)
         self.ledger.append(FactRoiLedger(
             ledger_id="LEDG-PLAT-001",
-            asset_id="GCP-INFRA",
+            asset_id="PLATFORM-INFRA",
             recorded_at=now,
             entry_type=RoiEntryType.PLATFORM_OPERATING_COST,
             value_category=DataProvenance.REALIZED,
             amount_usd=-self.platform_annual_cost_usd,
             downtime_hours=0.0,
-            calculation_formula="Annualized Google Cloud Infrastructure & Sensor Management",
-            evidence_reference="GCP-BILLING-PROJECT-TWIN",
+            calculation_formula="Annualized platform infrastructure & sensor management",
+            evidence_reference="PLATFORM-BILLING-TWIN",
             cumulative_net_benefit_usd=19400.0,
         ))
 

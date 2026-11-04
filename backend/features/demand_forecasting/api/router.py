@@ -108,7 +108,7 @@ async def readiness_probe() -> dict[str, Any]:
     """Readiness probe indicating analytical engine and in-memory lakehouse are ready."""
     return {
         "ready": True,
-        "database": "BigQuery (Local In-Memory Mode Active)",
+        "database": "SQLite (shared twin.db)",
         "plants_count": len(local_manufacturing_repo.plants),
         "products_count": len(local_manufacturing_repo.products),
         "demand_history_records": len(local_manufacturing_repo.demand_history),

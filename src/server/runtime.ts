@@ -5,11 +5,11 @@ import path from "node:path";
 
 /** Facts about where this server runs and where it keeps local files. */
 
-/** Serverless runtimes (Cloud Run / Cloud Functions / App Hosting), where only /tmp is writable. */
-export const isServerless = () => !!(process.env.K_SERVICE || process.env.FUNCTION_TARGET || process.env.FIREBASE_CONFIG);
+/** Ephemeral container filesystems (TWIN_EPHEMERAL_STORAGE=true), where only /tmp is writable. */
+export const isServerless = () => process.env.TWIN_EPHEMERAL_STORAGE === "true";
 
-/** Running on Cloud Run (the platform sets K_SERVICE). */
-export const isCloudRun = () => !!process.env.K_SERVICE;
+/** A public deployment (TWIN_DEPLOYMENT=public): admin needs a passcode, never open. */
+export const isPublicDeployment = () => process.env.TWIN_DEPLOYMENT === "public";
 
 /** Directory for local JSON files: TWIN_DATA_DIR, else /tmp/twin on serverless runtimes, else ./.data. */
 export const dataDir = () => process.env.TWIN_DATA_DIR || (isServerless() ? path.join(os.tmpdir(), "twin") : path.join(process.cwd(), ".data"));

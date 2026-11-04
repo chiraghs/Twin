@@ -76,14 +76,15 @@ export const SpecMaterialSchema = z.object({
   prov: ProvSchema,
 });
 
-export const INTEGRATION_KINDS = ["simulated", "mqtt", "opcua", "modbus", "pubsub", "camera-rtsp", "historian", "erp"] as const;
+export const INTEGRATION_KINDS = ["simulated", "mqtt", "opcua", "modbus", "camera-rtsp", "historian", "erp"] as const;
 export type IntegrationKind = (typeof INTEGRATION_KINDS)[number];
 
 export const SpecIntegrationSchema = z.object({
   id,
   /** A line id, a machine id, or "site". */
   target: id,
-  kind: z.enum(INTEGRATION_KINDS),
+  // Specs saved by earlier builds may say "pubsub"; telemetry streaming is MQTT now.
+  kind: z.preprocess((v) => (v === "pubsub" ? "mqtt" : v), z.enum(INTEGRATION_KINDS)),
   /** Topic, node id, register map, URL… (never credentials). */
   address: z.string().trim().max(200).nullable(),
   notes: z.string().max(300).nullish(),

@@ -514,7 +514,7 @@ export function readingsFor(state: FactoryState, assetId: string) {
 }
 
 /**
- * Apply externally ingested measurements (e.g. Pub/Sub). They replace the simulated
+ * Apply externally ingested measurements (e.g. MQTT). They replace the simulated
  * measurement for the asset; the plant model continues to drive production flows.
  */
 export function applyExternalReadings(

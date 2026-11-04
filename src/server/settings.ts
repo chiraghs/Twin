@@ -7,11 +7,10 @@ import { dataDir, displayPath, isServerless } from "./runtime";
 /**
  * Integration settings that an admin can change in the UI.
  *
- * Each setting overrides the environment variable of the same name (apphosting.yaml / .env.local),
+ * Each setting overrides the environment variable of the same name (docker-compose.yml / .env.local),
  * so a deployment works out of the box and the UI only changes what it needs to. Saved settings
  * live in the SQLite tables `app_settings` (current values) and `app_settings_history` (every
- * change, never a secret's value); with TWIN_CONFIG_BUCKET they are also mirrored to a private
- * Cloud Storage object so they survive serverless instance restarts. Secret values are
+ * change, never a secret's value). Secret values are
  * write-only: they are never returned to the browser or written to the audit trail.
  */
 
@@ -49,12 +48,7 @@ export const AI_PROVIDERS = ["meta"] as const;
 export type AiProviderId = (typeof AI_PROVIDERS)[number];
 
 export const SETTINGS = {
-  GOOGLE_CLOUD_PROJECT: {
-    label: "Google Cloud project",
-    help: "Optional. Project id used for BigQuery, Pub/Sub and Cloud Storage. The server's service account needs access to each service you turn on.",
-    placeholder: "my-project-id",
-    validate: pattern(/^[a-z][a-z0-9-]{4,28}[a-z0-9]$/, "Project ids are 6–30 lowercase letters, digits or hyphens"),
-  },
+
   AI_ENABLED: {
     defaultValue: "true",
     label: "AI agents",
@@ -90,51 +84,70 @@ export const SETTINGS = {
     placeholder: "http://localhost:8000",
     validate: httpsUrl,
   },
+  INTELLIGENCE_BACKEND_TOKEN: {
+    label: "Service token",
+    help: "Shared bearer token: the web app sends it to the intelligence backend, which requires it when TWIN_SERVICE_TOKEN is set there. Stored on the server; never shown again.",
+    secret: true,
+    validate: pattern(/^[A-Za-z0-9._~+\-]{16,200}$/, "Use 16–200 URL-safe characters"),
+  },
   VISION_SERVICE_URL: {
     label: "Service URL",
-    help: "Base URL of the Python vision service (Cloud Run URL, or http://localhost:8000 when running locally).",
-    placeholder: "https://twin-vision-xxxx.asia-southeast1.run.app",
+    help: "Base URL of the Python vision service (OpenCV), e.g. http://vision:8080 in Docker Compose or http://localhost:8080 locally.",
+    placeholder: "http://localhost:8080",
     validate: httpsUrl,
   },
-  VISION_SERVICE_AUTH: {
-    defaultValue: "id-token",
-    label: "Authentication",
-    help: "Cloud Run services deployed with --no-allow-unauthenticated need a Google ID token.",
-    options: [
-      { value: "id-token", label: "Google ID token (Cloud Run IAM)" },
-      { value: "none", label: "None (public or local service)" },
-    ],
+  VISION_SERVICE_TOKEN: {
+    label: "Service token",
+    help: "Shared bearer token sent to the vision service (its VISION_SERVICE_TOKEN). Leave empty for a local service without auth. Stored on the server; never shown again.",
+    secret: true,
+    validate: pattern(/^[A-Za-z0-9._~+\-]{16,200}$/, "Use 16–200 URL-safe characters"),
   },
-  BIGQUERY_DATASET: {
-    label: "Dataset",
-    help: "Dataset holding the tables in infra/bigquery/schema.sql.",
-    placeholder: "twin",
-    validate: pattern(/^[A-Za-z0-9_]{1,1024}$/, "Dataset names use letters, digits and underscores"),
-  },
-  PUBSUB_TELEMETRY_SUBSCRIPTION: {
-    label: "Subscription",
-    help: "Pull subscription carrying JSON messages {assetId, vibration, temperature, powerKw}.",
-    placeholder: "twin-telemetry-sub",
-    validate: pattern(/^[A-Za-z][A-Za-z0-9\-_.~+%]{2,254}$/, "Not a valid subscription id"),
-  },
+
+
+
   TELEMETRY_SOURCE: {
     defaultValue: "simulated",
     label: "Telemetry source",
-    help: "With Pub/Sub, incoming readings override the simulated measurements of matching assets.",
+    help: "With MQTT, readings published to the telemetry topic override the simulated measurements of matching assets.",
     options: [
       { value: "simulated", label: "Built-in plant model" },
-      { value: "pubsub", label: "Pub/Sub (needs a subscription)" },
+      { value: "mqtt", label: "MQTT (needs a broker and topic)" },
     ],
   },
-  GCS_BUCKET: {
-    label: "Bucket",
-    help: "Bucket with per-asset documents under assets/<assetId>/.",
-    placeholder: "my-plant-documents",
-    validate: pattern(/^[a-z0-9][a-z0-9._-]{1,220}[a-z0-9]$/, "Not a valid bucket name"),
+  S3_ENDPOINT: {
+    label: "Endpoint",
+    help: "S3-compatible object storage for per-asset documents under assets/<assetId>/ (MinIO, SeaweedFS, Ceph, AWS S3…).",
+    placeholder: "http://localhost:9000",
+    validate: httpsUrl,
   },
+  S3_BUCKET: {
+    label: "Bucket",
+    help: "Bucket holding the documents.",
+    placeholder: "plant-documents",
+    validate: pattern(/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/, "Not a valid bucket name"),
+  },
+  S3_REGION: {
+    defaultValue: "us-east-1",
+    label: "Region",
+    help: "Signing region (MinIO accepts us-east-1).",
+    placeholder: "us-east-1",
+    validate: pattern(/^[a-z0-9-]{2,40}$/, "Not a valid region"),
+  },
+  S3_ACCESS_KEY_ID: {
+    label: "Access key",
+    help: "Access key id for the bucket (read-only is enough).",
+    validate: pattern(/^\S{3,200}$/, "Not a valid access key"),
+  },
+  S3_SECRET_ACCESS_KEY: {
+    label: "Secret key",
+    help: "Secret key for the bucket. Stored on the server; never shown again.",
+    secret: true,
+    validate: pattern(/^\S{8,200}$/, "Not a valid secret key"),
+  },
+
   MQTT_BROKER_URL: {
     label: "Broker URL",
-    help: "mqtt:// or mqtts:// address of the broker. Only reachability is tested in this version.",
+    help: "mqtt:// or mqtts:// address of the broker (e.g. Eclipse Mosquitto or EMQX). Test connection subscribes to the topic.",
     placeholder: "mqtts://broker.plant.example:8883",
     validate: (v) => {
       try {
@@ -149,9 +162,20 @@ export const SETTINGS = {
   },
   MQTT_TOPIC: {
     label: "Topic",
-    help: "Topic filter for telemetry.",
+    help: "Topic filter for telemetry: JSON {assetId, vibration?, temperature?, powerKw?}.",
     placeholder: "plant/+/telemetry",
     validate: pattern(/^[^\s#]{1,200}(#)?$/, "Not a valid topic filter"),
+  },
+  MQTT_USERNAME: {
+    label: "Username",
+    help: "Broker username (optional).",
+    validate: pattern(/^\S{1,120}$/, "Not a valid username"),
+  },
+  MQTT_PASSWORD: {
+    label: "Password",
+    help: "Broker password (optional). Stored on the server; never shown again.",
+    secret: true,
+    validate: pattern(/^\S{1,200}$/, "Not a valid password"),
   },
   TWIN_MCP_ENABLED: {
     defaultValue: "true",
@@ -200,30 +224,17 @@ interface Persisted {
 type Store = {
   data: Persisted;
   loaded: boolean;
-  durable: { ok: boolean; detail: string } | null;
   writing: Promise<void>;
-  /** Local changes since start; a bucket read that started before a change must not overwrite it. */
-  writes: number;
-  lastReadAt: number;
-  refreshing: Promise<void> | null;
 };
 const g = globalThis as unknown as { __twinSettings?: Store };
 const store: Store = (g.__twinSettings ??= {
   data: { version: 1, values: {}, updatedAt: null, updatedBy: null },
   loaded: false,
-  durable: null,
   writing: Promise.resolve(),
-  writes: 0,
-  lastReadAt: 0,
-  refreshing: null,
 });
-/** Other instances (or a rollout's new revision) pick up saved changes within this time. */
-const REFRESH_MS = 60_000;
 
 /** Settings files written by earlier builds; imported into SQLite once. */
 const LEGACY_FILE = () => path.join(dataDir(), "settings.json");
-const OBJECT = "twin/settings.json";
-const bucket = () => process.env.TWIN_CONFIG_BUCKET || "";
 
 function sanitise(raw: unknown): Persisted {
   const values: Partial<Record<SettingKey, string>> = {};
@@ -295,63 +306,22 @@ export function settingsHistory(limit = 100) {
     .all(limit) as { key: string; action: string; value: string | null; changedAt: string; changedBy: string | null }[];
 }
 
-/** Read the saved settings from Cloud Storage once. Never throws; records the outcome in store.durable. */
-async function readBucket(timeoutMs: number) {
-  const writesAtStart = store.writes;
-  try {
-    const { gcpFetch } = await import("./integrations/gcp");
-    const body = await gcpFetch(`https://storage.googleapis.com/storage/v1/b/${bucket()}/o/${encodeURIComponent(OBJECT)}?alt=media`, { timeoutMs });
-    if (store.writes === writesAtStart) store.data = sanitise(body);
-    store.durable = { ok: true, detail: `Loaded from gs://${bucket()}/${OBJECT}` };
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    if (msg.startsWith("404")) {
-      if (store.writes === writesAtStart) store.data = sanitise(null);
-      store.durable = { ok: true, detail: `gs://${bucket()}/${OBJECT} (nothing saved yet)` };
-    } else store.durable = { ok: false, detail: `Could not read gs://${bucket()}/${OBJECT}: ${msg === "This operation was aborted" ? "timed out" : msg}` };
-  }
-  store.lastReadAt = Date.now();
-}
-
-/** Load saved settings (Cloud Storage when configured, else the local file). Called once at server start. */
+/** Load saved settings from SQLite. Called once at server start. */
 export async function loadSettings() {
-  if (bucket()) {
-    // The first call on a cold instance can be slow (credentials, connection setup): retry before giving up.
-    for (let attempt = 0; attempt < 3; attempt++) {
-      await readBucket(15_000);
-      if (store.durable?.ok) break;
-      await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
-    }
-    if (!store.durable?.ok) loadLocalSync();
-  } else loadLocalSync();
+  loadLocalSync();
   store.loaded = true;
 }
 
-/** Re-read the bucket in the background when the last read failed or is older than REFRESH_MS. */
-function maybeRefresh() {
-  if (!bucket() || store.refreshing) return;
-  if (store.durable?.ok && Date.now() - store.lastReadAt < REFRESH_MS) return;
-  store.refreshing = readBucket(15_000).finally(() => {
-    store.refreshing = null;
-  });
-}
-
-/** Wait for an up-to-date read of the saved settings (used before showing or changing them). */
+/** Settings live in SQLite on this host; kept for callers that await a fresh read. */
 export async function ensureFreshSettings() {
   ensureLoaded();
-  if (!bucket()) return;
-  maybeRefresh();
-  if (store.refreshing && !store.durable?.ok) await store.refreshing;
-  else if (store.refreshing) await Promise.race([store.refreshing, new Promise((r) => setTimeout(r, 3000))]);
 }
 
 function ensureLoaded() {
   if (!store.loaded) {
-    // Synchronous fallback for code paths that run before loadSettings() (local development).
     loadLocalSync();
     store.loaded = true;
   }
-  maybeRefresh();
 }
 
 /** The effective value: the UI setting when one is saved (an empty string turns it off), else the environment. */
@@ -389,12 +359,11 @@ export function describeSettings(keys: SettingKey[]): SettingView[] {
 }
 
 export function settingsStorage() {
-  if (bucket()) return { kind: "cloud-storage" as const, where: `gs://${bucket()}/${OBJECT}`, ok: store.durable?.ok ?? true, detail: store.durable?.detail ?? null, updatedAt: store.data.updatedAt, updatedBy: store.data.updatedBy };
   return {
     kind: "sqlite" as const,
     where: `${displayPath(dbPath())} · app_settings`,
     ok: true,
-    detail: isServerless() ? "Saved in SQLite on this server instance only; set TWIN_CONFIG_BUCKET to keep settings across restarts." : null,
+    detail: isServerless() ? "Saved in SQLite on this instance; mount a persistent volume for the data directory to keep settings across restarts." : null,
     updatedAt: store.data.updatedAt,
     updatedBy: store.data.updatedBy,
   };
@@ -412,12 +381,6 @@ export class SettingsError extends Error {
  */
 export async function updateSettings(changes: Record<string, string | null>, by: string): Promise<SettingKey[]> {
   ensureLoaded();
-  if (bucket()) {
-    // Start from the latest saved settings, and never overwrite saved settings we could not read.
-    if (store.refreshing) await store.refreshing;
-    if (!store.durable?.ok || Date.now() - store.lastReadAt > 5_000) await readBucket(15_000);
-    if (!store.durable?.ok) throw new Error(`Saved settings could not be read (${store.durable?.detail ?? "unknown error"}), so nothing was changed. Try again in a moment.`);
-  }
   const issues: string[] = [];
   const next = { ...store.data.values };
   for (const [k, raw] of Object.entries(changes)) {
@@ -442,7 +405,6 @@ export async function updateSettings(changes: Record<string, string | null>, by:
   if (issues.length) throw new SettingsError(issues);
   const before = Object.fromEntries(SETTING_KEYS.map((k) => [k, setting(k) ?? ""]));
   const prevValues = { ...store.data.values };
-  store.writes++;
   store.data = { version: 1, values: next, updatedAt: new Date().toISOString(), updatedBy: by };
   const changed = SETTING_KEYS.filter((k) => (setting(k) ?? "") !== before[k]);
   await persist(prevValues, by);
@@ -450,24 +412,8 @@ export async function updateSettings(changes: Record<string, string | null>, by:
 }
 
 async function persist(prevValues: Partial<Record<SettingKey, string>>, by: string) {
-  const snapshot = JSON.stringify(store.data);
   const data = store.data;
-  const write = async () => {
-    try {
-      writeLocal(data, prevValues, by);
-    } catch (e) {
-      console.warn("[settings] could not write settings to SQLite:", e);
-    }
-    if (!bucket()) return;
-    try {
-      const { gcpFetch } = await import("./integrations/gcp");
-      await gcpFetch(`https://storage.googleapis.com/upload/storage/v1/b/${bucket()}/o?uploadType=media&name=${encodeURIComponent(OBJECT)}`, { method: "POST", body: snapshot });
-      store.durable = { ok: true, detail: `Saved to gs://${bucket()}/${OBJECT}` };
-    } catch (e) {
-      store.durable = { ok: false, detail: `Could not save to gs://${bucket()}/${OBJECT}: ${e instanceof Error ? e.message : String(e)}` };
-      throw new Error(`Settings applied on this instance, but saving to Cloud Storage failed: ${e instanceof Error ? e.message : String(e)}`);
-    }
-  };
+  const write = async () => writeLocal(data, prevValues, by);
   store.writing = store.writing.then(write, write);
   return store.writing;
 }
@@ -476,6 +422,4 @@ async function persist(prevValues: Partial<Record<SettingKey, string>>, by: stri
 export function __resetSettingsForTests() {
   store.data = { version: 1, values: {}, updatedAt: null, updatedBy: null };
   store.loaded = true;
-  store.durable = null;
-  store.refreshing = null;
 }

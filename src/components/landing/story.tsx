@@ -614,16 +614,16 @@ function CloudSection() {
     <section className="border-t border-line/70 px-6 py-28">
       <div className="mx-auto max-w-6xl">
         <Reveal>
-          <p className="text-[13px] font-semibold tracking-[0.14em] text-accent-ink uppercase">Built for Google Cloud</p>
-          <h2 className="mt-3 max-w-3xl text-[36px] leading-tight font-semibold tracking-[-0.02em] text-ink lg:text-[52px]">Built on Google Cloud. Ready to scale with your plant.</h2>
+          <p className="text-[13px] font-semibold tracking-[0.14em] text-accent-ink uppercase">Meta models · open source stack</p>
+          <h2 className="mt-3 max-w-3xl text-[36px] leading-tight font-semibold tracking-[-0.02em] text-ink lg:text-[52px]">Built on Meta models and open source. Ready to scale with your plant.</h2>
         </Reveal>
         <div className="mt-12 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
           {[
             { icon: Sparkles, t: "Meta Muse models", b: "Muse Wonder briefings, a Muse Spark copilot and Twin Builder, SAM 3.1 vision, all with grounded output" },
-            { icon: Database, t: "BigQuery", b: "Telemetry, health history and scenario outcomes" },
-            { icon: Radio, t: "Pub/Sub", b: "Streaming telemetry ingestion" },
-            { icon: FileText, t: "Cloud Storage", b: "Manuals and inspection reports per asset" },
-            { icon: Cloud, t: "Cloud Run", b: "One container for UI and API" },
+            { icon: Database, t: "SQLite + DuckDB", b: "One shared data model, with DuckDB analytics over telemetry, health and scenarios" },
+            { icon: Radio, t: "MQTT", b: "Streaming telemetry ingestion" },
+            { icon: FileText, t: "S3-compatible storage", b: "Manuals and inspection reports per asset (MinIO or any S3)" },
+            { icon: Cloud, t: "Docker Compose", b: "Web, intelligence backend and vision service in one command" },
           ].map((x, i) => (
             <Reveal key={x.t} delay={i * 60}>
               <div className="h-full rounded-2xl border border-line bg-surface p-5">
@@ -682,8 +682,8 @@ function Nav() {
           <a href="#platform" className="hover:text-ink">
             Platform
           </a>
-          <a href="#cloud" className="hover:text-ink">
-            Google Cloud
+          <a href="#stack" className="hover:text-ink">
+            Stack
           </a>
         </nav>
         <div className="flex items-center gap-2">
@@ -708,7 +708,7 @@ export function LandingExperience({ story }: { story: StoryData }) {
       <div id="platform">
         <Platform />
       </div>
-      <div id="cloud">
+      <div id="stack">
         <CloudSection />
       </div>
       <FinalCta />
@@ -717,7 +717,7 @@ export function LandingExperience({ story }: { story: StoryData }) {
           <span className="flex items-center gap-2">
             <BrandMark className="h-5 w-5" /> Twin AI
           </span>
-          <span>Built on Google Cloud</span>
+          <span>Built on Meta models and open source</span>
         </div>
       </footer>
     </div>

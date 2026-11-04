@@ -60,8 +60,6 @@ export interface ResearchResult {
   notes: string;
   references: { id: string; title: string; url: string }[];
   queries: string[];
-  /** Google Search suggestions HTML that must be shown with grounded results. */
-  searchEntryPoint: string | null;
 }
 
 /* ───────────────────────────── draft ───────────────────────────── */

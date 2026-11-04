@@ -40,7 +40,7 @@ Without `MODEL_API_KEY` (or without an image) the **local reference detector** r
 | **Golden-template comparison** | **OpenCV** | Alignment and pixel subtraction must be deterministic and repeatable. |
 | **Verdict** | **Deterministic rule engine** | Confidence thresholds and IPC-A-610 rules; low-confidence or un-localised findings go to `REVIEW_REQUIRED`. |
 | **Model governance** | **Human dispositions** | Confirm / dismiss / override decisions measure detector precision (`/quality/mlops/detector-feedback`) before any threshold is tuned. |
-| **Storage & analytics (optional)** | Lakehouse adapters (BigQuery, object storage, Pub/Sub) | Inspection events, defects, KPIs and the disposition audit trail ([schema](../../sql/visual_quality_lakehouse_schema.sql)). |
+| **Storage & analytics** | SQLite (`vq_` tables) + DuckDB reports | Inspection events, defects, KPIs and the disposition audit trail ([data model](../../../docs/data-model.md)). |
 
 ---
 
@@ -87,7 +87,7 @@ To guarantee regulatory compliance, quality engineers review flagged units throu
    - `DISMISS_DEFECT`: Overrides defect if within acceptable visual variance; logs auditor ID.
    - `OVERRIDE_PASS`: Releases unit with justification.
    - `RECLASSIFY`: Corrects the defect class; feeds the detector feedback metrics.
-4. **Audit Trail**: Every disposition is recorded (`fact_human_disposition_audit` in the lakehouse schema) and drives detector precision.
+4. **Audit Trail**: Every disposition is recorded (in SQLite) and drives detector precision.
 
 ---
 

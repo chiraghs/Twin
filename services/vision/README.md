@@ -12,7 +12,9 @@ uv run uvicorn app.main:app --port 8000   # interactive docs at /docs
 
 Point the web app at it with `VISION_SERVICE_URL=http://localhost:8000`.
 
-Docker (the same image runs on Cloud Run):
+Set `VISION_SERVICE_TOKEN` (here and in the web app) to require a bearer token on the inspection endpoints.
+
+Docker (in the full stack, `docker compose up` runs it as `http://vision:8080`):
 
 ```bash
 docker build -t twin-vision .

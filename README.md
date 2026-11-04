@@ -49,12 +49,13 @@ Twin builds on our earlier digital-twin engine: the deterministic plant model, s
 9. [Playground](#playground)
 10. [Copilot and MCP](#copilot-and-mcp)
 11. [API reference](#api-reference)
-12. [Integrations (Meta Model API, optional Google Cloud)](#integrations)
+12. [Integrations (Meta Model API and open-source adapters)](#integrations)
 13. [Manufacturing intelligence backend & feature domains](#manufacturing-intelligence-backend--feature-domains)
-14. [Deploy (Firebase App Hosting or Cloud Run)](#deploy-to-firebase-app-hosting)
-15. [Testing](#testing)
-16. [Project structure](#project-structure)
-17. [Known limitations](#known-limitations)
+14. [Deploy (Docker Compose)](#deploy-with-docker-compose)
+15. [Scaling to market standards](#scaling-to-market-standards)
+16. [Testing](#testing)
+17. [Project structure](#project-structure)
+18. [Known limitations](#known-limitations)
 
 The full architecture and design document is [docs/architecture.md](docs/architecture.md).
 
@@ -152,7 +153,7 @@ The fastest path is **Demo controls → Run Factory Crisis Demo** (top-right). I
 | Live view plays a real HLS / MP4 / MJPEG stream when a camera is pointed at a gateway URL (https only) | ✅ implemented; needs a gateway |
 | Visual Quality: FPY, DPMO, rolled throughput yield, defect Pareto, hourly reject trend, vibration ↔ reject correlation, camera wall, standards and privacy panel | ✅ |
 | Visual reviews: deterministic station-log review, Muse Spark review of uploaded clips (as frame sheets) or photos with **SAM 3.1 defect localisation**, Muse Image synthetic test photos, human confirm / dismiss | ✅ AI part needs `MODEL_API_KEY` |
-| Python vision service (FastAPI + OpenCV): golden-board comparison with alignment, barcode/QR reading with an indicative grade, image quality, video stoppage detection; results drawn over the upload and stored as reviews | ✅ runs locally / in Docker; Cloud Run deploy is Phase 2 of [the plan](docs/python-services-plan.md) |
+| Python vision service (FastAPI + OpenCV): golden-board comparison with alignment, barcode/QR reading with an indicative grade, image quality, video stoppage detection; results drawn over the upload and stored as reviews | ✅ runs locally and in Docker Compose |
 | What-if engine: baseline plus three alternatives plus a custom plan, 10+ adjustable parameters, comparison table, charts, timeline, assumptions | ✅ |
 | Human approval: approve, reject, rollback, execution status, directive tracking | ✅ |
 | Sustainability: energy per unit, by-line energy, idle waste, scrap, avoidable-waste estimates, scenario energy and waste | ✅ |
@@ -160,8 +161,9 @@ The fastest path is **Demo controls → Run Factory Crisis Demo** (top-right). I
 | **Muse Wonder** writes the orchestrator's decision briefing (Muse Spark as fallback), with schema validation, timeout, numeric grounding check and deterministic fallback | ✅ needs `MODEL_API_KEY` |
 | **SQLite system of record** shared by both services: normalised twin tables with change-only writes, settings and configuration history, per-browser preferences and drafts, copilot conversations, AI call log, run history ([data model](docs/data-model.md)) | ✅ |
 | **Intelligence Backend page** (via `/api/backend` proxy): fleet risk, maintenance copilot in 7 languages, recommendation approval, AOI inspection with defect boxes and dispositions, supply-chain what-if and assistant, mitigation approval, S&OP brief, shift handover, alarm triage, editable feature configs with history, live data model | ✅ needs the backend running |
-| BigQuery, Pub/Sub, Cloud Storage and MQTT adapters with real connectivity tests | ✅ implemented; need configuration |
-| Dockerfile and Cloud Run deploy script | ✅ |
+| **DuckDB analytics** over the shared SQLite database: monthly demand, sensor health, supplier exposure, Meta Model API usage (Intelligence Backend → Analytics) | ✅ |
+| Open-source adapters with real connectivity tests: **MQTT** telemetry ingestion (Mosquitto, EMQX) and **S3-compatible** document storage (MinIO, SeaweedFS, any S3) | ✅ implemented; need configuration |
+| `docker-compose.yml`: web, backend and vision service on one shared volume; optional Mosquitto and MinIO profiles; bearer tokens between services | ✅ |
 
 ---
 
@@ -173,7 +175,7 @@ Twin is two services and one database ([diagram](docs/architecture/twin-architec
 - **Intelligence backend — Python 3.12+ / FastAPI (`backend/`).** Predictive maintenance, AOI inspection, supply chain intelligence, demand forecasting and S&OP planning, and operations copilots, each a hexagonal feature module.
 - **SQLite (`.data/twin.db`) — the system of record for both.** WAL mode lets both processes use the same file; each owns and migrates its tables (`schema_migrations`). No state lives only in the browser or in memory.
 - **Meta Model API.** Muse Spark, Muse Wonder, SAM 3.1, Muse Image and Muse Voice Transcribe, called by both services. Every call is logged in `ai_calls`.
-- **Optional:** the Python **vision service** (`services/vision`, FastAPI + OpenCV) for deterministic machine-vision checks, called server-to-server; BigQuery / Pub/Sub / Cloud Storage / MQTT adapters.
+- **Optional:** the Python **vision service** (`services/vision`, FastAPI + OpenCV) for deterministic machine-vision checks, called server-to-server; MQTT telemetry and S3-compatible storage adapters (open source).
 
 ```
 Browser (React 19, Tailwind 4, React Flow, Recharts, Zustand)
@@ -193,15 +195,16 @@ Next.js route handlers (/api/*)               ← validate (zod) → domain comm
  │                     per-browser preferences, copilot sessions, AI call log, migrations
  │     ai/             Meta Model API: llm.ts (Muse Spark / Wonder), meta-media.ts (SAM 3.1, Muse Image, Voice)
  │     copilot/        multi-agent copilot on Muse Spark function calling
- │     integrations/*  intelligence backend proxy · vision service · BigQuery · Pub/Sub · Cloud Storage · MQTT
+ │     integrations/*  intelligence backend proxy · vision service · MQTT · S3-compatible storage
  │
  ├──► /api/backend/* ──► backend/ (Python, FastAPI)
  │     core/db         SQLite layer: declared tables, write-through collections, configs + history, run history
+ │     core/analytics  DuckDB reports over a snapshot of the SQLite tables
  │     core/ai         Meta Model API client, grounded narration (figure check + deterministic fallback)
  │     features/*      predictive_maintenance · visual_quality_inspection · supply_chain_intelligence ·
  │                     demand_forecasting · production_optimization · waste_reduction · operational_copilots
  │
- ├──► services/vision (Python, optional)   FastAPI + OpenCV, called with a Google ID token on Cloud Run
+ ├──► services/vision (Python, optional)   FastAPI + OpenCV, called with a bearer token
  │
  └──► SQLite .data/twin.db  ◄── shared by the web app and the intelligence backend (83 tables)
 ```
@@ -305,7 +308,7 @@ You can edit lines, machines, rates, products, robots and connections directly, 
 
 **Without AI** (no `MODEL_API_KEY`) the builder says so, matches your description to one of 7 industry templates by keywords, and the review and build work the same way.
 
-**Connections.** Plan data connections per line or machine: Pub/Sub and camera streams work today; OPC UA, Modbus and MQTT are planned through an edge gateway. The Integrations page lists them as planned until they are verified.
+**Connections.** Plan data connections per line or machine: MQTT telemetry and camera streams work today; OPC UA and Modbus are planned through an edge gateway. The Integrations page lists them as planned until they are verified.
 
 Design, guarantees and limits: [docs/twin-builder.md](docs/twin-builder.md).
 
@@ -389,7 +392,7 @@ curl -s localhost:3000/api/kpis | jq .kpis.oee
 
 ## Integrations
 
-Everything works **without credentials**. Turn integrations on from **Admin → Integrations → Configure** (admin): enter the service's URL, dataset, bucket or token and press **Test connection**, no redeploy needed. A value saved there overrides the environment variable of the same name (`.env.example`, `apphosting.yaml`), which remains the deployment default; secrets (Meta Model API key, MCP token) are write-only. Saved settings live in a private Cloud Storage bucket (`TWIN_CONFIG_BUCKET`), or in `.data/settings.json` locally. The **Integrations** page reports status honestly:
+Everything works **without credentials**. Turn integrations on from **Admin → Integrations → Configure** (admin): enter the service's URL, bucket or token and press **Test connection**, no redeploy needed. A value saved there overrides the environment variable of the same name (`.env.example`, `docker-compose.yml`), which remains the deployment default; secrets (Meta Model API key, service tokens, MQTT and S3 credentials) are write-only. Saved settings live in SQLite (`app_settings`, with every change in `app_settings_history`). The **Integrations** page reports status honestly:
 
 - **Active · simulated/local**: a local implementation is in use.
 - **Not configured**: required environment variables are missing.
@@ -400,24 +403,16 @@ Everything works **without credentials**. Turn integrations on from **Admin → 
 | Service | What it does here | Required configuration |
 |---|---|---|
 | **Meta Model API** | Muse Wonder decision briefings; Muse Spark for the multi-agent copilot (coordinator + specialists), the Twin Builder (drawings, cited web research, drafting, chat edits) and footage review; SAM 3.1 for floor-plan footprints and defect localisation; Muse Image for floor plans and test photos; Muse Voice Transcribe for speech-to-twin. Video is reviewed as frames captured in the browser. **Turn AI off** there to stop all AI spending. | `MODEL_API_KEY` (plus optional `META_MODEL`, `META_REASONING_MODEL`) |
-| **BigQuery** | Mirrors scenario outcomes and decisions; schema for telemetry, production and health history | `BIGQUERY_DATASET`, then create tables with `infra/bigquery/schema.sql` |
-| **Pub/Sub** | Telemetry ingestion: `{assetId, vibration, temperature, powerKw}` messages override simulated measurements | `PUBSUB_TELEMETRY_SUBSCRIPTION`, `TELEMETRY_SOURCE=pubsub` |
-| **Cloud Storage** | Per-asset documents under `assets/<assetId>/` | `GCS_BUCKET` |
-| **Cloud Run** | Hosting (detected via `K_SERVICE`) | See below |
-| **Vision service** (Cloud Run, Python) | OpenCV checks behind `POST /api/vision/inspect` and the control room's motion check | Service URL (deployed privately as `twin-vision`); the web app's service account has `roles/run.invoker` ([plan, Phase 2](docs/python-services-plan.md#phase-2-deploy-to-cloud-run--done)) |
+| **Intelligence backend** (Python) | Everything on the Intelligence Backend page, through the allow-listed `/api/backend/*` proxy | `INTELLIGENCE_BACKEND_URL`; optional `INTELLIGENCE_BACKEND_TOKEN` (bearer token, set the same value on both services) |
+| **Vision service** (Python) | OpenCV checks behind `POST /api/vision/inspect` and the control room's motion check | `VISION_SERVICE_URL`; optional `VISION_SERVICE_TOKEN` |
+| **MQTT** (Mosquitto, EMQX, any broker) | Telemetry ingestion: `{assetId, vibration, temperature, powerKw}` messages on `MQTT_TOPIC` override simulated measurements | `MQTT_BROKER_URL`, `TELEMETRY_SOURCE=mqtt`; optional `MQTT_USERNAME` / `MQTT_PASSWORD` |
+| **S3-compatible storage** (MinIO, SeaweedFS, Ceph, AWS S3) | Per-asset documents under `assets/<assetId>/` (SigV4, path-style) | `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` |
+| **DuckDB analytics** (in the backend) | Predefined reports over a snapshot of the SQLite tables: monthly demand, sensor health, supplier exposure, Meta Model API usage | None |
 | **MCP server** | External agents use the twin's tools at `/api/mcp` | Optional access token, or turn the endpoint off |
-| MQTT | TCP reachability probe only | Broker URL |
 
 ### Admin access
 
-Camera sources and integration settings need an admin session. On App Hosting the passcode is the Secret Manager secret `twin-admin-key` (mapped to `TWIN_ADMIN_KEY`):
-
-```bash
-gcloud secrets versions access latest --secret twin-admin-key --project twin-ai   # read it
-firebase apphosting:secrets:set twin-admin-key --project twin-ai                    # rotate it, then roll out
-```
-
-Unlock with **Unlock admin** on the control room or Integrations page; the session lasts 8 hours. Without a passcode, admin is open in local development and disabled on Cloud Run.
+Camera sources and integration settings need an admin session. The passcode is `TWIN_ADMIN_KEY` (in `.env.local`, or `.env` / a Docker secret under Compose). Unlock with **Unlock admin** on the control room or Integrations page; the session lasts 8 hours. Without a passcode, admin is open in local development and disabled when `TWIN_DEPLOYMENT=public`.
 
 > **Model note.** Defaults are `muse-spark-1.3` (agents) and `muse-wonder-1.0` (briefings); change them with `META_MODEL` / `META_REASONING_MODEL` or in Integrations. SAM 3.1, Muse Image and Muse Voice Transcribe use `sam-3.1`, `muse-image-1.0` and `muse-voice-transcribe-1.0`.
 
@@ -427,7 +422,7 @@ Use **Integrations → Test connection** to verify each configured service.
 
 ## Manufacturing intelligence backend & feature domains
 
-Twin includes an enterprise-grade, Hexagonal/DDD Python backend ([`backend/`](backend/README.md)) running on **Python 3.12+ / FastAPI**, with all AI on **Meta Model API** (`backend/core/ai`: Muse Spark, Muse Wonder, SAM 3.1, Muse Image; grounded, with deterministic fallbacks) and optional lakehouse adapters (BigQuery, Pub/Sub, object storage), with interactive Streamlit operations cockpits ([`dashboard/`](dashboard/README.md)).
+Twin includes an enterprise-grade, Hexagonal/DDD Python backend ([`backend/`](backend/README.md)) running on **Python 3.12+ / FastAPI**, with all AI on **Meta Model API** (`backend/core/ai`: Muse Spark, Muse Wonder, SAM 3.1, Muse Image; grounded, with deterministic fallbacks) and DuckDB analytics over the shared SQLite database, with interactive Streamlit operations cockpits ([`dashboard/`](dashboard/README.md)).
 
 Each intelligence domain is independently designed, fully documented, and backed by automated test suites:
 
@@ -456,48 +451,49 @@ Sources are in `docs/architecture/src` (`python docs/architecture/src/build_diag
 ### Supporting Backend Subsystems & Specifications:
 - **[Hexagonal Backend Architecture & DI Container](backend/README.md)**: Ports and adapters blueprint, SOLID principles, and REST/WebSocket entrypoint.
 - **[Feature Modules Overview](backend/features/README.md)**: Standardized hexagonal directory structure and domain guidelines.
-- **[Industrial BigQuery Lakehouse DDL](backend/sql/demand_forecasting_lakehouse_schema.sql)**: Production lakehouse DDL with 18 time-partitioned and clustered tables.
+- **[Data model](docs/data-model.md)**: every SQLite table, its typed columns and indexes; DuckDB reports in `backend/core/analytics`.
 - **[Streamlit Operations Cockpits](dashboard/README.md)**: Multi-page operations dashboard for live production, inventory, and forecasting.
-- **[Infrastructure as Code (Terraform)](infra/terraform/demand_forecasting.tf)**: optional Terraform for the data adapters and hosting (BigQuery, object storage, Pub/Sub, Cloud Run, Scheduler); no cloud AI services.
+- **[docker-compose.yml](docker-compose.yml)**: the whole stack on one machine, all open source apart from the Meta Model API.
 
 ---
 
-## Deploy to Firebase App Hosting
+## Deploy with Docker Compose
 
-The repo is configured for [Firebase App Hosting](https://firebase.google.com/docs/app-hosting) (Next.js on Cloud Run, managed by Firebase). The project needs the **Blaze** plan.
-
-- `apphosting.yaml`: runtime settings. **`maxInstances: 1`**, because the SQLite database lives on the instance (`/tmp`); a multi-instance deployment needs a shared database (see Known limitations). App Hosting deploys the web app only; run the intelligence backend next to it (same host and database file) or point `INTELLIGENCE_BACKEND_URL` at it.
-- `.firebaserc` / `firebase.json`: default project `twin-ai`, backend `twin` (region `asia-southeast1`).
-
-Deploy the current local source:
+Everything except the Meta Model API is open source and runs on one machine:
 
 ```bash
-firebase deploy --only apphosting --project twin-ai
+cp .env.example .env        # set MODEL_API_KEY, TWIN_ADMIN_KEY, INTELLIGENCE_BACKEND_TOKEN, VISION_SERVICE_TOKEN
+docker compose up --build   # http://localhost:3000
+docker compose --profile mqtt --profile storage up --build   # + Mosquitto (MQTT) and MinIO (S3)
 ```
 
-To deploy automatically on every push to `main`, connect the GitHub repository to the backend: Firebase console → **App Hosting** → `twin` → **Settings → Deployment** → connect `The-OWLabs/twin-ai`, live branch `main`, root directory `/`.
+| Service | Image | Notes |
+|---|---|---|
+| `web` | `Dockerfile` (Node 22, Next.js standalone) | Port 3000; talks to `backend` and `vision` by service name |
+| `backend` | `backend/Dockerfile` (Python 3.13, FastAPI) | Requires `INTELLIGENCE_BACKEND_TOKEN` when set; `/health` stays open |
+| `vision` | `services/vision/Dockerfile` (OpenCV) | Requires `VISION_SERVICE_TOKEN` when set |
+| `mqtt` (profile) | `eclipse-mosquitto` | Anonymous on the local network only; enable a password file or TLS for a plant network |
+| `storage`, `storage-init` (profile) | MinIO + `mc` | Creates the `S3_BUCKET` bucket on start |
 
-**Cost.** App Hosting bills the underlying Cloud Build, Cloud Run, Artifact Registry and bandwidth usage. Light demo traffic stays inside Blaze's monthly no-cost allowances. Each open dashboard tab polls telemetry every 4 s, roughly 45 MB/hour of bandwidth against a 10 GiB free allowance. Set a budget alert in Cloud Billing.
+`web` and `backend` share the `twin-data` volume, which holds `twin.db`. Both images run as uid 10001 so both can write it. Set `TWIN_DEPLOYMENT=public` on an internet-facing host so admin always needs the passcode.
 
-## Deploy to Cloud Run
+> **Security note.** There is no per-user login. Anyone who can reach port 3000 can reset the demo or approve plans (simulated only). Put it behind a reverse proxy with authentication for anything beyond a demo.
 
-```bash
-export GOOGLE_CLOUD_PROJECT=my-project
-export REGION=us-central1                 # optional
-# optional: BIGQUERY_DATASET, GCS_BUCKET, PUBSUB_TELEMETRY_SUBSCRIPTION, META_MODEL, META_REASONING_MODEL (MODEL_API_KEY comes from Secret Manager: twin-model-api-key)
-./infra/cloudrun/deploy.sh
-```
+## Scaling to market standards
 
-The script enables the required APIs and creates a least-privilege runtime service account with these roles: `secretmanager.secretAccessor` (for the Meta Model API key), `bigquery.dataEditor`, `bigquery.jobUser`, `pubsub.subscriber` and `storage.objectViewer`. It then builds from the `Dockerfile` (multi-stage, Node 22, standalone output) and deploys with **`--max-instances 1`**, because the SQLite database lives in the instance (deploys the web app; run the intelligence backend alongside it).
+The Compose stack is sized for a demo and a single plant. Each part has a standard, open-source scale-out path, and none of them needs a redesign:
 
-> **Security note.** The script deploys a **public, unauthenticated** service so judges can open it. The app has no user authentication. Anyone with the URL can reset the demo or approve plans (simulated only). Remove `--allow-unauthenticated` or put the service behind IAP for anything beyond a demo.
-
-Local container:
-
-```bash
-docker build -t twin-ai .
-docker run -p 8080:8080 twin-ai     # http://localhost:8080
-```
+| Concern | Today | At scale |
+|---|---|---|
+| System of record | SQLite (WAL), shared file | **PostgreSQL** (managed or self-hosted; Citus or partitioning for many plants). Tables are already keyed by facility and use plain SQL, so this is a driver change |
+| Analytics | DuckDB over a snapshot | **ClickHouse**, or **Apache Iceberg** tables queried by **Trino / Presto** (Presto originated at Meta), with **Velox** (Meta) as the execution engine; the report SQL carries over |
+| Telemetry streaming | MQTT (Mosquitto) | **EMQX** cluster at the edge bridged to **Apache Kafka** or **Redpanda**; Sparkplug B payloads for OT |
+| Documents and media | MinIO | MinIO distributed mode, **Ceph**, or any S3 service |
+| Orchestration | Docker Compose | **Kubernetes** with Helm charts; horizontal scaling once the database is PostgreSQL |
+| Secrets | `.env` / Docker secrets | **OpenBao** or HashiCorp **Vault**; sealed secrets in Git |
+| Identity | One admin passcode | **Keycloak** (OIDC, SAML) with roles for operators, planners and approvers |
+| Observability | `ai_calls` table, logs | **OpenTelemetry** to **Prometheus** and **Grafana** (Loki for logs, Tempo for traces) |
+| Forecasting and retrieval (roadmap) | GBDT / seasonal baselines; keyword RAG | **Prophet** (Meta) as another forecasting challenger; **FAISS** (Meta) vector index for maintenance-manual retrieval |
 
 ---
 
@@ -505,7 +501,7 @@ docker run -p 8080:8080 twin-ai     # http://localhost:8080
 
 ```bash
 npm test               # 132 Vitest tests (web app)
-npm run test:backend   # 75 pytest tests (intelligence backend)
+npm run test:backend   # 77 pytest tests (intelligence backend)
 npm run build && npm run test:e2e   # 18 Playwright tests against the production server
 cd services/vision && uv run pytest # 16 pytest tests for the Python vision service
 ```
@@ -525,7 +521,7 @@ cd services/vision && uv run pytest # 16 pytest tests for the Python vision serv
   - cameras: https-only stream URLs, audited live views, station-log reviews and the human disposition guard
   - mapping of vision-service results to review findings
   - Twin Builder: every template validates cleanly, builds, simulates and runs the six-agent analysis; deterministic builds; industry-appropriate defect classes; validation repairs and errors; and the agent workflow with recorded model responses (blueprint links, citation filtering, unsupported machine types, fallbacks, and chat edits as validated operations). The demo factory is checked byte-identical after the generator refactor.
-- **Admin and settings** (`tests/admin.test.ts`): signed admin cookies (expiry, tampering, passcode rotation, rate limit); settings overriding the environment, turning off and returning to the deployment value; never overwriting saved settings that could not be read from Cloud Storage; validation (https only, no metadata host); secrets never returned; settings driving the AI and vision adapters; camera source switching with audit; every footage clip shipped with its file, poster and license; stock-outs reported once.
+- **Admin and settings** (`tests/admin.test.ts`): signed admin cookies (expiry, tampering, passcode rotation, rate limit); settings overriding the environment, turning off and returning to the deployment value; settings persisted in SQLite; validation (https only, no metadata host); secrets never returned; settings driving the AI and vision adapters; camera source switching with audit; every footage clip shipped with its file, poster and license; stock-outs reported once.
 - **Playground and rules** (`tests/playground-rules.test.ts`): placing, connecting, splitting and deleting machines, with rules that lose their target removed; validation of rules that can't work; inventory triggers ordering whole lots once; a line taking over a stopped line's work and handing it back after the repair; pausing a line while the buffer before packing is full and resuming it after it drains; maintenance rules proposing once per crossing without scheduling anything; What-If runs using the same rules without touching the live plant.
 - **Meta Model API** (`tests/ai-providers.test.ts`, recorded responses, no network): configuration and missing key; Responses API JSON with images, bearer key and reasoning effort; Muse Wonder for the reasoning tier; web search citations from `url_citation` annotations; refusal of video and PDFs; the schema-dialect retry; the copilot runtime delegating to specialists, executing tools and pausing `propose_plan` for confirmation. `tests/segmentation.test.ts`: SAM 3.1 box-token parsing and merging footprints into a blueprint reading.
 - **Agent tools** (`tests/tools.test.ts`): every read tool leaves the twin unchanged; what-if matches the engine; the proposal only creates a pending recommendation; invalid arguments are rejected; no tool can approve, execute or command equipment; numeric grounding of answers.
@@ -548,7 +544,7 @@ src/
                        operations, agent workflow, spec from a running twin), tools/ (agent tool layer, grounding),
                        recommendations, actions, KPIs, seed
   server/              persistence, AI provider, integrations, documents, request schemas
-backend/               Enterprise Hexagonal Python backend (FastAPI, BigQuery Lakehouse, ML models)
+backend/               Enterprise Hexagonal Python backend (FastAPI, SQLite, DuckDB analytics, ML models)
   core/                Cross-cutting abstractions, DI container, event bus
   connectors/          Industrial OT (OPC UA, MQTT, Modbus) and IT bridges
   mcp/                 Model Context Protocol (MCP) server & tool definitions
@@ -556,7 +552,7 @@ backend/               Enterprise Hexagonal Python backend (FastAPI, BigQuery La
   features/            7 domain intelligence platforms with dedicated sub-READMEs:
     predictive_maintenance/    RUL estimation, ISO 10816, fact_roi_ledger, Muse Spark copilot
     supply_chain_intelligence/ Disruption tracer, line starvation (TTD), plant vulnerability
-    demand_forecasting/        Multi-horizon ML forecasting, constraint planning, BigQuery lakehouse
+    demand_forecasting/        Multi-horizon ML forecasting, constraint planning, S&OP brief
     production_optimization/   OEE analysis, bottleneck detection, Little's Law pacing
     visual_quality_inspection/ AOI, OpenCV golden template alignment, IPC-A-610 grading
     waste_reduction/           Scrap causal attribution, machine friction, Scope 1 & 2 carbon
@@ -566,7 +562,8 @@ services/vision/       Python vision service (FastAPI + OpenCV), tests, Dockerfi
 services/agents/       Python Muse Spark agent that operates the twin over MCP
 docs/                  architecture.md, twin-builder.md, python-services-plan.md
 content/docs/          demo maintenance manuals and procedures (fictional)
-infra/                 Terraform scripts (GCP BigQuery, Pub/Sub, Cloud Run), schemas, deploy scripts
+infra/                 Mosquitto config for the Compose MQTT profile
+docker-compose.yml     web + backend + vision on one shared SQLite volume; optional MQTT and S3 profiles
 tests/ e2e/            Vitest, Playwright, and Pytest suites
 ```
 
@@ -578,12 +575,12 @@ tests/ e2e/            Vitest, Playwright, and Pytest suites
 - **No real cameras in the demo.** Camera feeds are rendered from the twin, or play reference footage of other factories, which is labelled as such. Inspection results come from the plant model's scrap attribution, not a trained vision model, and are not derived from the footage. Real streams need a plant-side gateway (HLS / MP4 / MJPEG over HTTPS). Muse Spark footage review and SAM 3.1 localisation are advisory and unvalidated; run an attribute-agreement study before relying on them. Muse Image test photos are synthetic and labelled as such.
 - **No real equipment control.** Approval changes only the digital twin. The platform never writes to PLCs or commands machines; that would need a separately authenticated, authorized and safety-validated integration.
 - **Two demo datasets.** The intelligence backend has its own demo plants (Bangalore, Stuttgart, Detroit) and machines; they are not the same plant as the web app's twin. Both live in the same database but are not linked yet.
-- **One database file, one host.** Both services share one SQLite file, so they must run on the same machine (or share a volume), and a serverless deployment keeps it in the instance's `/tmp` (hence max-instances 1; state resets when the instance is recycled). Tables are keyed by facility and use plain SQL, so moving to a server database (Cloud SQL / PostgreSQL) is a driver change rather than a redesign.
+- **One database file, one host.** Both services share one SQLite file, so they must run on the same machine (or share a volume), as Docker Compose does with the `twin-data` volume. Tables are keyed by facility and use plain SQL, so moving to PostgreSQL is a driver change rather than a redesign (see [Scaling to market standards](#scaling-to-market-standards)).
 - **No per-user login.** Configuration changes (camera sources, integration settings) need the admin passcode; everything else is open to anyone with the URL.
 - **Mobile robots are simulated.** Fleets come from the Twin Builder spec (the demo plant has a derived kitting and pallet fleet); missions and trip rates follow the plant model; no fleet manager is connected (a VDA 5050 or vendor-API adapter would supply real positions). The 3D animation runs at real speed while the plant clock runs 30× faster.
 - **No automatic re-ordering in the demo plant.** Its parts without an open purchase order run out after about 55–61 hours of plant time (about 2 hours of an open tab after a reset), and the lines starve. Use **Reset Demo**, or add inventory rules in the Playground and apply them.
 - **Playground limits.** Machines on a line still run in series in the model, whatever their positions; positions and conveyor shapes are visual. Rules act on the simulation only. A connector rule watches the line and the buffer before packing; there are no buffers between machines.
-- **Cloud adapters are not verified against live services in this build.** BigQuery, Pub/Sub and Cloud Storage calls are implemented and are exercised only when configured. MQTT is a reachability probe; subscription is not implemented.
+- **Adapters are not verified against live services in this build.** MQTT ingestion and S3-compatible storage are implemented and exercised only when configured; the automated tests do not start a broker or MinIO.
 - **Twin Builder limits.** Machines on a line run in series, with up to 4 process lines plus one packing area and 8 machines per line. Parallel or batch steps are approximated. Default rates, prices, stock and the sample orders are typical values until real systems are connected. Drawings must be images (PNG, JPEG, WebP); export PDFs as images. Without `MODEL_API_KEY`, template mode is used.
 - **Time model.** Live telemetry advances 2 minutes of plant time every 4 seconds while the app is open in a visible tab. Fast-forward runs the same model in larger jumps.
 - **Desktop-first.** On phones, the demo and the Twin Builder open with a full-page notice that Twin is best viewed on a computer, with **Continue on this device** (remembered for the session) and a link to send to a computer. Pages still work on phones (no horizontal page scrolling), but the twin canvas and wide tables are best on a laptop or larger screen.

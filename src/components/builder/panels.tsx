@@ -200,10 +200,6 @@ export function SourcesPanel() {
         ) : (
           <p className="text-[12px] text-muted">No web sources were used{research === null ? " (research was off or unavailable)" : ""}.</p>
         )}
-        {research?.searchEntryPoint && (
-          // Google Search suggestions must be shown alongside grounded results.
-          <iframe title="Google Search suggestions" srcDoc={research.searchEntryPoint} sandbox="allow-popups allow-popups-to-escape-sandbox" className="mt-2 h-16 w-full rounded-lg border border-line bg-white" />
-        )}
       </div>
       {research?.notes && (
         <details className="rounded-lg border border-line bg-shell p-2.5">
@@ -309,9 +305,8 @@ export function ProductsPanel() {
 
 export const CONNECTION_META: Record<IntegrationKind, { label: string; status: "active" | "ready" | "planned"; detail: string; placeholder: string }> = {
   simulated: { label: "Built-in telemetry", status: "active", detail: "The twin generates readings. Works today.", placeholder: "" },
-  pubsub: { label: "Pub/Sub telemetry", status: "ready", detail: "Ready: machine readings published to a subscription drive the twin.", placeholder: "projects/…/subscriptions/telemetry" },
   "camera-rtsp": { label: "Camera (RTSP/ONVIF)", status: "ready", detail: "Ready for viewing through a camera gateway.", placeholder: "rtsp://10.0.0.21/stream1" },
-  mqtt: { label: "MQTT", status: "planned", detail: "Planned: through the edge gateway.", placeholder: "plant/line1/filler/#" },
+  mqtt: { label: "MQTT telemetry", status: "ready", detail: "Ready: machine readings published to the broker topic drive the twin (Integrations → MQTT).", placeholder: "plant/line1/filler/telemetry" },
   opcua: { label: "OPC UA", status: "planned", detail: "Planned: read-only, through the edge gateway.", placeholder: "ns=2;s=Filler.Speed" },
   modbus: { label: "Modbus TCP", status: "planned", detail: "Planned: read-only, through the edge gateway.", placeholder: "10.0.0.40:502 HR 40001–40010" },
   historian: { label: "Historian", status: "planned", detail: "Planned: backfill telemetry history.", placeholder: "PI tag prefix or table" },

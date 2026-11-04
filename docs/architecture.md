@@ -40,7 +40,7 @@ flowchart LR
     db[(SQLite · twin.db<br/>shared system of record)]
   end
   vision[Vision service<br/>FastAPI + OpenCV · optional]
-  other[(BigQuery · Pub/Sub · Cloud Storage<br/>optional adapters)]
+  other[(MQTT broker · S3-compatible storage<br/>optional, open source)]
   plant[[Plant network · future<br/>cameras, PLCs, OPC UA, MQTT]]
   user -->|browser| app
   ext -->|MCP Streamable HTTP| app
@@ -49,7 +49,7 @@ flowchart LR
   app -->|/api/backend proxy| backend
   app --- db
   backend --- db
-  app -->|ID token| vision
+  app -->|bearer token| vision
   app --- other
   plant -.->|edge gateway, read-only, planned| other
 ```
@@ -72,10 +72,10 @@ flowchart TB
     ui[React 19 UI · Tailwind 4 · React Flow · Recharts · Zustand]
     domc[Domain engine, client copy<br/>instant what-if, validation, previews]
   end
-  subgraph apphosting[Web app · Next.js 15 · App Hosting / Cloud Run · max 1 instance]
+  subgraph webapp[Web app · Next.js 15 · Docker Compose service web]
     routes[Next.js 15 route handlers · 50+ endpoints]
     doms[Domain engine, server copy]
-    adk[Copilot runtime<br/>Muse Spark function calling · sessions in SQLite]
+    rt[Copilot runtime<br/>Muse Spark function calling · sessions in SQLite]
     mcp[MCP server<br/>@modelcontextprotocol/sdk 1.32.1]
     proxy[/api/backend proxy<br/>allow-listed/]
   end
@@ -86,35 +86,35 @@ flowchart TB
   db[(SQLite · .data/twin.db<br/>WAL · shared · 83 tables)]
   meta[Meta Model API<br/>Muse Spark · Wonder · SAM 3.1 · Image · Voice]
   subgraph py[Optional Python services]
-    vis[services/vision · FastAPI · OpenCV<br/>Cloud Run, private]
+    vis[services/vision · FastAPI · OpenCV<br/>Compose service vision, bearer token]
     pyagent[services/agents · Python agent on Muse Spark<br/>MCP client]
   end
   ui -->|fetch / NDJSON streams · preferences| routes
   routes --> doms
-  routes --> adk --> doms
+  routes --> rt --> doms
   routes --> mcp --> doms
   doms -->|change-only writes| db
   routes --> proxy -->|HTTP| feats --> bedb --> db
   routes -->|HTTPS| meta
   feats -->|HTTPS| meta
-  routes -->|multipart + Google ID token| vis
+  routes -->|multipart + bearer token| vis
   pyagent -->|MCP| mcp
-  routes -->|settings mirror, optional| gcs[(Cloud Storage<br/>private config bucket)]
-  routes -->|admin passcode| sm[(Secret Manager)]
+  routes -->|MQTT telemetry, optional| mq[(MQTT broker<br/>Mosquitto · EMQX)]
+  routes -->|documents, optional| s3[(S3-compatible storage<br/>MinIO · SeaweedFS)]
 ```
 
 | Unit | Tech | Runs where | State |
 |---|---|---|---|
-| Web app (UI and API) | Next.js 15.5, React 19, TypeScript 5.9 | Firebase App Hosting (Cloud Run), `asia-southeast1`, 0–1 instances, 1 CPU, 1 GiB; or `npm start` locally | Each plant's `FactoryState` cached in memory; system of record in SQLite (normalised tables, change-only writes) |
-| Intelligence backend | Python 3.12+, FastAPI, pydantic | Next to the web app (`npm run backend`, port 8000), called through `/api/backend/*` | SQLite (`pm_`, `vq_`, `sc_`, `df_`, `oc_` tables, `app_config`, run history) |
+| Web app (UI and API) | Next.js 15.5, React 19, TypeScript 5.9 | Docker Compose service `web` (port 3000); or `npm run dev` / `npm start` locally | Each plant's `FactoryState` cached in memory; system of record in SQLite (normalised tables, change-only writes) |
+| Intelligence backend | Python 3.12+, FastAPI, pydantic | Compose service `backend`, or `npm run backend` (port 8000); called through `/api/backend/*` with a bearer token | SQLite (`pm_`, `vq_`, `sc_`, `df_`, `oc_` tables, `app_config`, run history); DuckDB reports over a snapshot |
 | SQLite database | `node:sqlite` (web) and `sqlite3` (backend), WAL | `.data/twin.db` (`TWIN_DB_PATH` / `TWIN_DATA_DIR`) | System of record for both services ([data model](data-model.md)) |
 | Domain engine | Pure TypeScript (`src/domain`, ≈ 8,900 lines) | Server, and in the browser for instant what-if and validation | None (functions over state) |
 | Copilot | Native multi-agent runtime (`src/server/copilot/agent.ts`) on Muse Spark (Meta Model API) | Inside the web app | Sessions in SQLite (`copilot_sessions`, `copilot_messages`, `copilot_evidence`) |
 | MCP server | `@modelcontextprotocol/sdk` 1.32.1, Streamable HTTP, stateless | Inside the web app at `/api/mcp` | None |
-| Vision service | Python 3.13, FastAPI, OpenCV, uv-locked | Cloud Run `twin-vision`, `asia-southeast1`, private (`--no-allow-unauthenticated`), 0–2 instances | None |
+| Vision service | Python 3.13, FastAPI, OpenCV, uv-locked | Compose service `vision` (port 8080); bearer token when `VISION_SERVICE_TOKEN` is set | None |
 | Python MCP agent | `mcp` client + Muse Spark (Responses API) | Local CLI | None |
 
-**Why one instance?** The SQLite file lives on the host (on serverless, in the instance's `/tmp`), and each instance would have its own copy. Section 14 describes the move to a server database.
+**Why one host?** The SQLite file lives on the `twin-data` volume, which both services mount. Section 14 describes the move to a server database.
 
 ---
 
@@ -140,13 +140,13 @@ src/
     recommendations.ts, actions.ts, commands.ts, kpis.ts, audit.ts
   server/                 server-only adapters
     http.ts               route wrapper, error contract, NDJSON responses
-    runtime.ts            runtime facts: serverless detection, data dir, atomic writes
+    runtime.ts            runtime facts: public deployment, ephemeral storage, data dir, atomic writes
     store.ts              state persistence
     ai/                   provider-neutral LLM port (llm.ts) and provider config
     builder/ai.ts         Twin Builder prompts and schemas (BuilderAi adapter)
     copilot/              multi-agent runtime on Muse Spark (coordinator, specialists, confirmation gate)
     tools/store.ts        binds the tool layer to live state (ToolStore adapter)
-    integrations/         BigQuery, Pub/Sub, GCS, MQTT, vision service; honest status
+    integrations/         MQTT, S3-compatible storage, vision service, backend proxy; honest status
   lib/contracts.ts        wire types shared by server and browser (copilot stream, landing story)
   app/                    Next.js routes: pages + /api/*
   client/                 Zustand stores (factory, UI, simulator, builder, playground, copilot, admin),
@@ -219,7 +219,7 @@ Twin has three kinds of agent, each with a clear trust boundary.
 | Layer | What decides | What the model does | Guardrails |
 |---|---|---|---|
 | **Analysis pipeline** (6 agents: maintenance, quality, production, supply, energy, orchestrator) | Deterministic code computes every finding, forecast and ranking | Muse Wonder writes the briefing text only | JSON schema; every figure must appear in the computed facts, otherwise a deterministic narrative is used |
-| **Twin Builder** | Deterministic validation and compiler | Reads drawings, researches with Google Search, drafts a spec, turns chat into edit operations | Fixed archetype catalog, provenance per element, citations from grounding metadata only, validated edit operations, human review before build |
+| **Twin Builder** | Deterministic validation and compiler | Reads drawings, researches with Meta web search, drafts a spec, turns chat into edit operations | Fixed archetype catalog, provenance per element, citations from `url_citation` annotations only, validated edit operations, human review before build |
 | **Copilot and MCP** | 12 deterministic tools | Chooses tools, delegates to specialists, explains results | Read tools can't change state; one proposal tool behind a confirmation gate; answers checked for untraced figures; no approve, execute or equipment tools exist |
 
 ### 7.1 Analysis pipeline
@@ -230,7 +230,7 @@ Twin has three kinds of agent, each with a clear trust boundary.
 
 ### 7.2 Twin Builder
 Full design: [twin-builder.md](twin-builder.md).
-- **Workflow:** read the drawing (multimodal), research the industry (Google Search grounding, cited), draft a `TwinSpec`, then validate.
+- **Workflow:** read the drawing (multimodal), research the industry (Meta Model API web search, cited), draft a `TwinSpec`, then validate.
 - **Model draft, code decides.** Code resolves ids, blueprint boxes and citations. A claim the model can't back (a non-existent drawing element, an invalid citation) is downgraded to *assumption*.
 - **Mobile robots.** Fleets the requirements or drawing describe are drafted with a type, move, line and count; if the model leaves them out, a keyword reader adds them and says so. They are reviewed and edited like machines.
 - **Edits.** Chat, manual and Playground edits share 28 validated edit operations (including placing, connecting and splitting machines, robot routes, and adding, updating and removing rules).
@@ -243,7 +243,7 @@ Full design: [twin-builder.md](twin-builder.md).
 ```mermaid
 flowchart TB
   q([User question]) --> root
-  subgraph adk[Twin agent runtime · TypeScript · Muse Spark]
+  subgraph rt[Twin agent runtime · TypeScript · Muse Spark]
     root[twin_copilot<br/>coordinator]
     m[maintenance_analyst]
     ql[quality_analyst]
@@ -352,7 +352,7 @@ The copilot runtime (`src/server/copilot/agent.ts`) drives the coordinator, spec
 | Setting | Value | Why |
 |---|---|---|
 | Models | `META_MODEL=muse-spark-1.3`, `META_REASONING_MODEL=muse-wonder-1.0` | Spark for tool use and extraction; Wonder for the trade-off briefing |
-| Auth | `MODEL_API_KEY` (Secret Manager in deployment, `.env.local` locally) | No keys in code or the browser; the base URL is deployment-only so the key can't be redirected from the UI |
+| Auth | `MODEL_API_KEY` (`.env` under Compose, `.env.local` locally) | No keys in code or the browser; the base URL is deployment-only so the key can't be redirected from the UI |
 | Retries | One retry on 429 or 5xx; one schema-dialect retry (`anyOf` for nullable types) | Recovers transient errors |
 | Reasoning | `reasoning.effort: "low"` for the briefing and copilot; default for builder drafting | Muse models always reason; low keeps it fast |
 | Structured output | `text.format` json_schema + zod on every structured call | Malformed output never reaches state |
@@ -368,12 +368,12 @@ The copilot runtime (`src/server/copilot/agent.ts`) drives the coordinator, spec
 - **No control path.** There are no endpoints or tools that write to equipment. Connectors are read-only by construction, and approved plans execute only in the twin.
 - **Human approval.** Recommendations from the pipeline, the operator or the copilot are always *pending* until a person approves them. Approve, reject and rollback exist only as UI routes; no agent tool can call them.
 - **Audit.** Alerts, agent findings, scenario runs, proposals (with who proposed them), decisions, executed actions, camera live views and visual reviews are all audited.
-- **Admin.** Camera sources and integration settings change only with an admin session: a passcode from Secret Manager unlocks an HMAC-signed, httpOnly, SameSite=Strict cookie for 8 hours, with constant-time comparison and a rate limit on wrong attempts. Without a passcode, admin is open in local development and disabled on Cloud Run.
-- **Secrets.** Server-side only. `.env.local` is git-ignored, and the browser never sees credentials. Secret settings entered in the UI (Meta Model API key, MCP token) are write-only: never returned by the API or written to the audit trail. They are saved in a private bucket with public access prevention; production would move them to Secret Manager.
+- **Admin.** Camera sources and integration settings change only with an admin session: a passcode (`TWIN_ADMIN_KEY`) unlocks an HMAC-signed, httpOnly, SameSite=Strict cookie for 8 hours, with constant-time comparison and a rate limit on wrong attempts. Without a passcode, admin is open in local development and disabled when `TWIN_DEPLOYMENT=public`.
+- **Secrets.** Server-side only. `.env.local` is git-ignored, and the browser never sees credentials. Secret settings entered in the UI (Meta Model API key, MCP token, service tokens, MQTT and S3 credentials) are write-only: never returned by the API or written to the audit trail. They are saved in SQLite on the private data volume; production would move them to OpenBao or Vault.
 - **Outbound URLs.** Stream and service URLs must be https (localhost for testing), without credentials, and the metadata server is refused.
-- **Uploads.** Size and type limits: 15 MB for images and drawings, 30 MB for video. Files are processed in memory or a temp file and never stored. The vision service is private on Cloud Run (unauthenticated calls get 403) and is called with Google ID tokens; only the App Hosting service account has `roles/run.invoker`.
+- **Uploads.** Size and type limits: 15 MB for images and drawings, 30 MB for video. Files are processed in memory or a temp file and never stored. The vision service and the intelligence backend are reachable only on the Compose network and, when their tokens are set, reject calls without the bearer token (401).
 - **Privacy.** Camera face blur, retention and purpose are recorded per camera, and live views are audited, following India's DPDP Act. Video analytics are advisory and never safety functions (IEC 61496 / ISO 13849).
-- **Known gaps (demo scope).** There is no per-user login: viewing, running scenarios and approving are open to anyone with the URL, and the MCP endpoint is open until a token is set on the Integrations page. Production would add Firebase Auth, per-tenant authorization and a token on MCP.
+- **Known gaps (demo scope).** There is no per-user login: viewing, running scenarios and approving are open to anyone with the URL, and the MCP endpoint is open until a token is set on the Integrations page. Production would add Keycloak (OIDC), per-tenant authorization and a token on MCP.
 
 ---
 
@@ -382,15 +382,16 @@ The copilot runtime (`src/server/copilot/agent.ts`) drives the coordinator, spec
 **Today:**
 - one SQLite database (`.data/twin.db`, WAL) is the system of record for both services ([data model](data-model.md)): factory twins in normalised tables with change-only writes, integration settings with history, per-browser preferences and drafts, copilot sessions, the AI call log, and every intelligence-backend entity, configuration and run
 - multiple facilities (twins) per deployment, each a set of rows keyed by `facility_id` with cascading deletes
-- integration settings can also be mirrored to a private Cloud Storage object (`TWIN_CONFIG_BUCKET`) for serverless restarts
-- both services must share the database file (same host or volume); on serverless, max 1 instance and the database resets when the instance is recycled
+- DuckDB reports (`backend/core/analytics`) read a snapshot of the SQLite tables for analytics
+- both services must share the database file (same host or volume; Compose mounts `twin-data` into both)
 
 **Next step to production:**
-1. Move the same schema to a server database (Cloud SQL / PostgreSQL): the tables are plain SQL keyed by facility, and `src/server/db/*` and `backend/core/db/*` are the only code that talks to the database.
+1. Move the same schema to PostgreSQL: the tables are plain SQL keyed by facility, and `src/server/db/*` and `backend/core/db/*` are the only code that talks to the database.
 2. Authentication and per-facility access rules; multiple tenants.
-3. Lift the instance cap and run the plant clock as a scheduled job, not per browser tick.
-4. Pub/Sub ingestion from the edge gateway for real telemetry (the adapter already exists).
+3. Run several web replicas and the plant clock as a scheduled job, not per browser tick.
+4. MQTT ingestion from the edge gateway for real telemetry (the adapter already exists), bridged to Kafka or Redpanda at plant-fleet scale.
 5. Link the intelligence backend's assets to the web twin's facilities (today they are two demo datasets in the same database).
+6. Analytics on ClickHouse, or Iceberg tables queried by Trino/Presto with Velox, in place of DuckDB snapshots (the report SQL carries over). The README's [Scaling to market standards](../README.md#scaling-to-market-standards) lists each component's path.
 
 ---
 
@@ -410,14 +411,15 @@ The e2e suite runs against local production builds and against the live URL (`E2
 
 | Task | How |
 |---|---|
-| Deploy the web app | Push to `main`, then `firebase apphosting:rollouts:create twin --git-commit <sha> --force --project twin-ai` |
-| Configuration | Integrations page for integration settings (admin); `apphosting.yaml` for deployment defaults, instance limits and secrets; `.env.local` for local work (git-ignored) |
-| AI access | `MODEL_API_KEY` from dev.meta.ai: `.env.local` locally; Secret Manager `twin-model-api-key` in deployment |
-| Health | `GET /api/health`; Integrations page with real connectivity tests |
-| Vision service | `gcloud run deploy twin-vision --source services/vision …` ([python-services-plan.md](python-services-plan.md), Phase 2). The App Hosting service account has `roles/run.invoker`; the URL is set on the Integrations page. |
-| Integration settings | Integrations page (admin). Saved to SQLite (`app_settings`, history in `app_settings_history`); optionally mirrored to `gs://…/twin/settings.json` (`TWIN_CONFIG_BUCKET`) and loaded at server start (`src/instrumentation.ts`). |
-| Intelligence backend | `npm run backend` (port 8000, `BACKEND_PORT` to change) next to the web app; its URL is set on the Integrations page (`INTELLIGENCE_BACKEND_URL`). Shares `.data/twin.db`. |
-| Admin passcode | Secret Manager `twin-admin-key`, mapped to `TWIN_ADMIN_KEY` in `apphosting.yaml`. Read it with `gcloud secrets versions access latest --secret twin-admin-key --project twin-ai`; rotate with `firebase apphosting:secrets:set twin-admin-key`. |
+| Deploy | `docker compose up --build` (web, backend, vision on one `twin-data` volume); `--profile mqtt --profile storage` adds Mosquitto and MinIO |
+| Configuration | Integrations page for integration settings (admin); `.env` (Compose) or `.env.local` (local) for deployment defaults and secrets, git-ignored |
+| AI access | `MODEL_API_KEY` from dev.meta.ai in `.env` / `.env.local` |
+| Health | `GET /api/health`; backend `/health`; Integrations page with real connectivity tests |
+| Vision service | Compose service `vision` at `http://vision:8080`; `VISION_SERVICE_TOKEN` on both sides. Locally: `uv run uvicorn app.main:app` in `services/vision`. |
+| Integration settings | Integrations page (admin). Saved to SQLite (`app_settings`, history in `app_settings_history`). |
+| Intelligence backend | Compose service `backend`, or `npm run backend` (port 8000, `BACKEND_PORT` to change); `INTELLIGENCE_BACKEND_URL` and `INTELLIGENCE_BACKEND_TOKEN`. Shares `twin.db`. |
+| Analytics | Intelligence Backend → Analytics, or `GET /api/v1/data/analytics/{report}` (DuckDB) |
+| Admin passcode | `TWIN_ADMIN_KEY` in `.env` (or a Docker secret); rotate by changing it and restarting `web`. |
 | Python MCP agent | `cd services/agents && uv sync && uv run python ask.py "…"` |
 
 ---
@@ -434,8 +436,9 @@ The e2e suite runs against local production builds and against the live URL (`E2
 | One tool layer shared by the copilot and MCP | Separate tool sets | A single place to enforce validation, read-only semantics and grounding |
 | Meta Model API Responses endpoint for every text model | Chat Completions | Only the Responses API offers web search with citations alongside function tools and structured output |
 | Python only where its libraries win (OpenCV, edge protocols) | Python everywhere | Keeps one language on the critical path |
-| Integration settings in the UI, overriding the environment | Environment variables only; Firestore | Admins enable and test integrations without a redeploy; the deployment still works with no saved settings; one small JSON object in a private bucket needs no new database |
-| One admin passcode in Secret Manager | Firebase Auth with roles; no protection | Protects configuration changes on a public demo URL in hours, not days; Firebase Auth/IAP is the production path |
+| Integration settings in the UI, overriding the environment | Environment variables only; Firestore | Admins enable and test integrations without a redeploy; the deployment still works with no saved settings; stored in the same SQLite database with change history |
+| One admin passcode | Keycloak (OIDC) with roles; no protection | Protects configuration changes on a public demo URL in hours, not days; Keycloak is the production path |
+| Open-source infrastructure (SQLite, DuckDB, MQTT, S3-compatible storage, Docker Compose) | A single cloud provider's managed services | Runs anywhere, including on-prem plant servers, with no cloud lock-in; each piece has a standard scale-out path |
 | 3D view built on the isometric layout (three.js / React Three Fiber, loaded on demand) | Separate 3D scene or glTF models | One layout and part library for both views, so they never disagree; no model assets to license; three.js costs nothing until the tab opens |
 | Mobile robots derived from material flow | AMRs as stored assets | Keeps the seeded demo unchanged and the robots consistent with line output; a fleet-manager adapter can replace it |
 | Reference footage, labelled, for camera demos | Simulated video only; unlabelled stock video | Real video makes visual QA demonstrable; labelling it as another facility's footage keeps the demo honest |
@@ -447,16 +450,16 @@ The e2e suite runs against local production builds and against the live URL (`E2
 **Limitations:**
 - simulated plant data only
 - single tenant; only configuration changes are behind an admin passcode (no per-user login)
-- per-instance factory state (integration settings are durable)
+- one host: both services share one SQLite file
 - machines on a line run in series
 - no automatic re-ordering in the demo plant (purchased parts without an open purchase order run out around h+55–61 and the lines starve); Playground inventory rules add it to a rebuilt twin
 - camera footage is reference video from other facilities; live camera analytics need the edge worker
-- connectors other than Pub/Sub are planned, not built
+- connectors other than MQTT are planned, not built
 
 **Roadmap:**
 1. Default replenishment for the demo plant, using the Playground's inventory rule, so long runs don't starve.
-2. Firestore state, Firebase Auth, and multiple factories.
+2. PostgreSQL state, Keycloak login, and multiple factories.
 3. Twin Builder self-correction loop on Muse Spark: draft, validate, repair, repeat.
-4. Edge gateway: OPC UA, Modbus and MQTT read-only, publishing to Pub/Sub; live camera analytics at the edge.
-5. Learned inspection (anomaly detection trained on good parts), validated with an MSA study before use; Gemma on-prem for plants without cloud access.
+4. Edge gateway: OPC UA, Modbus and MQTT read-only, publishing to MQTT; live camera analytics at the edge.
+5. Learned inspection (anomaly detection trained on good parts), validated with an MSA study before use; Llama on-prem for plants without cloud access.
 6. A2A endpoint so enterprise agents can delegate to Twin.

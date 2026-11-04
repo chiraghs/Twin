@@ -7,7 +7,6 @@ import {
   Cloud,
   Copy,
   Cpu,
-  Database,
   FileText,
   HardDrive,
   KeyRound,
@@ -46,12 +45,10 @@ const STATE = (s: Integration["state"]) => ({ ...INTEGRATION_STATE[s], Icon: STA
 const ICON: Record<string, typeof Cloud> = {
   telemetry: Radio,
   "meta-ai": Sparkles,
-  bigquery: Database,
-  pubsub: Radio,
-  gcs: FileText,
+  "object-storage": FileText,
   mqtt: Server,
   persistence: HardDrive,
-  "cloud-run": Cloud,
+  runtime: Cloud,
   "vision-service": ScanEye,
   "intelligence-backend": Server,
   mcp: Network,
@@ -69,7 +66,7 @@ function relevant(settings: SettingView[], provider?: string | null) {
 const SOURCE_LABEL: Record<SettingView["source"], string> = { ui: "set here", environment: "from deployment", unset: "not set" };
 
 /** Settings whose value switches an integration on; clearing them turns it off. */
-const SWITCHES = new Set(["VISION_SERVICE_URL", "INTELLIGENCE_BACKEND_URL", "BIGQUERY_DATASET", "PUBSUB_TELEMETRY_SUBSCRIPTION", "GCS_BUCKET", "MQTT_BROKER_URL"]);
+const SWITCHES = new Set(["VISION_SERVICE_URL", "INTELLIGENCE_BACKEND_URL", "S3_ENDPOINT", "MQTT_BROKER_URL"]);
 
 /** Pending edits: a string sets a value ("" turns it off), null returns it to the deployment value. */
 type Edits = Record<string, string | null>;
@@ -123,7 +120,7 @@ export default function IntegrationsPage() {
         }
       />
       {error && <p className="mb-3 text-[12px] text-critical-ink">{error}</p>}
-      {data && <PlatformStrip project={data.project} storage={data.storage} admin={admin} onSave={save} />}
+      {data && <PlatformStrip storage={data.storage} />}
       <div className="grid items-start gap-3 lg:grid-cols-2">
         {!data && Array.from({ length: 6 }).map((_, i) => <div key={i} className="h-44 animate-pulse rounded-xl bg-surface" />)}
         {data?.integrations.map((i) => <IntegrationCard key={i.id} item={i} admin={admin} testing={testing} onTest={test} onSave={save} />)}
@@ -132,16 +129,16 @@ export default function IntegrationsPage() {
       <PlannedConnections />
 
       <Card className="mt-4">
-        <CardHeader title="Google Cloud architecture" description="How each service maps onto the platform" icon={<Cloud className="h-4 w-4" />} />
+        <CardHeader title="Platform architecture" description="Meta Model API for AI; open-source components for everything else" icon={<Cloud className="h-4 w-4" />} />
         <CardBody>
           <div className="grid gap-3 text-[12.5px] md:grid-cols-2 xl:grid-cols-3">
             {[
-              ["Cloud Run", "Hosts the Next.js app (UI + API) through Firebase App Hosting, and the Python vision service."],
+              ["Docker Compose", "Runs the Next.js web app, the Python intelligence backend and the vision service on any host, sharing one data volume."],
               ["Meta Model API · Muse", "Muse Wonder writes decision briefings; Muse Spark runs the multi-agent copilot, Twin Builder research and footage review; SAM 3.1 segments drawings and defects; Muse Image and Muse Voice power generation and speech-to-twin. Every answer is schema-checked and its figures are checked against the twin."],
-              ["BigQuery", "Telemetry, production events, health history, scenario outcomes and decisions."],
-              ["Pub/Sub", "Live telemetry ingestion: published machine readings drive the twin."],
-              ["Cloud Storage", "Asset manuals and inspection reports, and the settings saved on this page."],
-              ["Secret Manager", "Holds the admin passcode for this deployment."],
+              ["SQLite + DuckDB", "SQLite is the system of record for both services (twins, settings, preferences, copilot, AI calls, backend data); DuckDB runs analytical queries over it."],
+              ["MQTT", "Live telemetry ingestion (Eclipse Mosquitto, EMQX…): published machine readings drive the twin."],
+              ["S3-compatible storage", "Asset manuals and inspection reports (MinIO, SeaweedFS, Ceph or any S3 API)."],
+              ["Secrets", "Model API key, admin passcode and service tokens as Docker secrets / environment variables."],
               ["Plant model", "The engine behind every number in the twin; always available."],
             ].map(([t, d]) => (
               <div key={t} className="rounded-xl border border-line bg-shell/60 p-3">
@@ -156,70 +153,21 @@ export default function IntegrationsPage() {
   );
 }
 
-function PlatformStrip({ project, storage, admin, onSave }: { project: SettingView; storage: SettingsStorage; admin: boolean; onSave: (v: Edits) => Promise<boolean> }) {
-  const [editing, setEditing] = useState(false);
-  const [value, setValue] = useState(project.value ?? "");
-  const [busy, setBusy] = useState(false);
-  useEffect(() => setValue(project.value ?? ""), [project.value]);
+function PlatformStrip({ storage }: { storage: SettingsStorage }) {
   return (
     <Card className="mb-3">
       <CardBody className="flex flex-wrap items-center gap-x-6 gap-y-2 pt-3 pb-3 text-[12.5px]">
         <div className="flex min-w-0 flex-wrap items-center gap-2">
-          <span className="text-muted">Google Cloud project</span>
-          {editing ? (
-            <form
-              className="flex items-center gap-1.5"
-              onSubmit={async (e) => {
-                e.preventDefault();
-                setBusy(true);
-                if (await onSave({ GOOGLE_CLOUD_PROJECT: value.trim() })) setEditing(false);
-                setBusy(false);
-              }}
-            >
-              <Input aria-label="Google Cloud project" className="h-7 w-48 font-mono text-[12px]" value={value} placeholder={project.placeholder ?? ""} onChange={(e) => setValue(e.target.value)} />
-              <Button size="xs" variant="primary" loading={busy} type="submit">
-                Save
-              </Button>
-              {project.source === "ui" && (
-                <Button
-                  size="xs"
-                  variant="ghost"
-                  type="button"
-                  onClick={async () => {
-                    setBusy(true);
-                    if (await onSave({ GOOGLE_CLOUD_PROJECT: null })) setEditing(false);
-                    setBusy(false);
-                  }}
-                >
-                  Use deployment value
-                </Button>
-              )}
-              <Button size="xs" variant="ghost" type="button" onClick={() => setEditing(false)}>
-                Cancel
-              </Button>
-            </form>
-          ) : (
-            <>
-              <span className="font-mono text-ink">{project.value || "—"}</span>
-              <SourceChip source={project.source} />
-              {admin && (
-                <Button size="xs" variant="ghost" onClick={() => setEditing(true)}>
-                  Change
-                </Button>
-              )}
-            </>
-          )}
-        </div>
-        <div className="flex min-w-0 flex-wrap items-center gap-2">
           <span className="text-muted">Settings</span>
-          <Badge tone={!storage.ok ? "critical" : storage.kind === "cloud-storage" ? "healthy" : "neutral"}>{!storage.ok ? "not saved" : storage.kind === "cloud-storage" ? "saved to Cloud Storage" : "saved on this server"}</Badge>
+          <Badge tone={storage.ok ? "neutral" : "critical"}>{storage.ok ? "saved in SQLite" : "not saved"}</Badge>
+          <span className="font-mono text-[11.5px] text-muted">{storage.where}</span>
           {storage.updatedAt && (
             <span className="text-[11.5px] text-muted">
               last change {new Date(storage.updatedAt).toLocaleString()}
               {storage.updatedBy ? ` by ${storage.updatedBy}` : ""}
             </span>
           )}
-          {storage.detail && !storage.ok && <span className="text-[11.5px] text-critical-ink">{storage.detail}</span>}
+          {storage.detail && <span className="text-[11.5px] text-muted">{storage.detail}</span>}
         </div>
       </CardBody>
     </Card>

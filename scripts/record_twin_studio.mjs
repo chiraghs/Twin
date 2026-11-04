@@ -32,7 +32,7 @@ async function updateHUD(page, step, title, desc) {
       hud.style.borderRadius = "16px";
       hud.style.padding = "16px 26px";
       hud.style.color = "#ffffff";
-      hud.style.fontFamily = "system-ui, -apple-system, BlinkMacSystemFont, 'Google Sans', sans-serif";
+      hud.style.fontFamily = "system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
       hud.style.boxShadow = "0 20px 45px rgba(0, 0, 0, 0.6)";
       hud.style.zIndex = "999999";
       hud.style.pointerEvents = "none";

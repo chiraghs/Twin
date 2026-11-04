@@ -271,7 +271,7 @@ export function builderAi(): BuilderAi {
         .join("\n");
       const r = await llmGenerate({ prompt, webSearch: true, maxOutputTokens: 8192, timeoutMs: 90_000 });
       const references: ResearchResult["references"] = r.citations.map((c) => ({ id: c.id, title: c.title, url: c.url }));
-      return { notes: r.markedText.slice(0, 8000), references, queries: r.queries, searchEntryPoint: r.searchEntryPoint };
+      return { notes: r.markedText.slice(0, 8000), references, queries: r.queries };
     },
 
     async draft(ctx) {

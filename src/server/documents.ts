@@ -1,5 +1,5 @@
 import "server-only";
-import { cloudStorage } from "./integrations/adapters";
+import { objectStorage } from "./integrations/adapters";
 import { DOC_CONTENT } from "./docs-content";
 
 export interface DocumentMeta {
@@ -7,7 +7,7 @@ export interface DocumentMeta {
   title: string;
   kind: "manual" | "bulletin" | "procedure";
   assetKinds: string[];
-  source: "local" | "gcs";
+  source: "local" | "object-storage";
   path: string;
 }
 
@@ -27,16 +27,16 @@ export async function listDocuments(asset?: { id: string; kind: string; document
   }));
   let remote: DocumentMeta[] = [];
   let remoteError: string | null = null;
-  if (cloudStorage.configured() && asset) {
+  if (objectStorage.configured() && asset) {
     try {
-      const items = await cloudStorage.list(`assets/${asset.id}/`);
+      const items = await objectStorage.list(`assets/${asset.id}/`);
       remote = items.map((o: { name: string }) => ({
         id: o.name,
         title: o.name.split("/").pop() ?? o.name,
         kind: "manual" as const,
         assetKinds: [asset.kind],
-        source: "gcs" as const,
-        path: `gs://${cloudStorage.bucket()}/${o.name}`,
+        source: "object-storage" as const,
+        path: `s3://${objectStorage.bucket()}/${o.name}`,
       }));
     } catch (e) {
       remoteError = e instanceof Error ? e.message : String(e);
@@ -44,7 +44,7 @@ export async function listDocuments(asset?: { id: string; kind: string; document
   }
   return {
     documents: [...local, ...remote],
-    store: cloudStorage.configured() ? "Cloud Storage and built-in documents" : "Built-in documents",
+    store: objectStorage.configured() ? "Object storage and built-in documents" : "Built-in documents",
     remoteError,
   };
 }

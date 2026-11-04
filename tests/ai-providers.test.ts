@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 /**
  * The Meta Model API adapter against recorded Responses API shapes (no network): configuration,
  * structured JSON, images, web search with url_citation annotations, the schema-dialect retry,
- * the Muse Wonder → Muse Spark briefing fallback and the ADK model adapter the copilot runs on.
+ * the Muse Wonder → Muse Spark briefing fallback and the model adapter the copilot runs on.
  */
 
 type Call = { url: string; body: Record<string, unknown>; headers: Record<string, string> };

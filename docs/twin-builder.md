@@ -18,7 +18,7 @@ A language model can misread a drawing or invent a number. The builder is design
 | The model only proposes; code decides | Muse Spark fills fixed JSON schemas (zod-validated). IDs, links between elements, blueprint boxes and citations are resolved in code (`src/domain/builder/draft.ts`). |
 | Only known machine types | Every machine maps to one of 16 archetypes with physics templates (`src/domain/archetypes.ts`). An unknown type becomes a manual station and is listed as an assumption for the user to fix. |
 | Every element says where it came from | Each line, machine, product, material and connection carries a provenance tag: blueprint, your requirement, cited source, template, assumption, or your edit. The review screen shows it on every row. |
-| Claims must be backed | "From the blueprint" requires a matching element on the drawing. "Cited source" requires a valid reference from the Google Search grounding metadata. Otherwise the tag is downgraded to *assumption*. |
+| Claims must be backed | "From the blueprint" requires a matching element on the drawing. "Cited source" requires a valid `url_citation` from the Meta Model API web search results. Otherwise the tag is downgraded to *assumption*. |
 | No invented numbers | The model may only give rates, prices and costs that the user, the drawing or a cited source states. Everything else stays empty and is filled by stated, deterministic defaults, which are listed in the build's audit entry. |
 | Deterministic validation | `validateSpec` checks structure, references, typical rate ranges and bottlenecks, repairs what is safe to repair, and reports everything it changed. Only a spec without errors can be built. |
 | Human review before build | Nothing is built until the user presses **Build my digital twin**. |
@@ -49,7 +49,7 @@ The workflow is `runBuilder` in `src/domain/builder/pipeline.ts`. The model sits
 - **site:** name, industry, location, production type.
 - **lines:** 1–4 process lines and an optional packing / end-of-line area that receives their output. Each has up to 8 machines in flow order, each with an archetype, an optional rate and an optional box on the drawing.
 - **products:** unit, rate, price, material cost and bill of materials. **materials:** unit, cost, lead time and stock.
-- **integrations:** planned data connections per line, machine or site (simulated, Pub/Sub, camera RTSP, MQTT, OPC UA, Modbus, historian, ERP). Never credentials.
+- **integrations:** planned data connections per line, machine or site (simulated, MQTT, camera RTSP, OPC UA, Modbus, historian, ERP). Never credentials.
 - **mobileRobots:** fleets of AMRs, AGVs, automated forklifts or tuggers, each with a count (up to 12 per fleet, 24 in all), a move (kitting: stores → a process line; line-transfer: a process line → the packing line; finished-goods: the packing line → the dock), the line it serves, and optional units per trip and speed. Only added when your requirements or the drawing mention robots. Validation points each fleet at a line that suits its move.
 - **references, assumptions, questions, options:** the options are the rehearsal incident and whether lines can run each other's products.
 
@@ -119,9 +119,9 @@ Connections are planned per line, machine or site and saved with the twin. The *
 | Kind | Status today |
 |---|---|
 | Simulated | Active |
-| Pub/Sub telemetry | Implemented. Set `PUBSUB_TELEMETRY_SUBSCRIPTION`; messages `{assetId, vibration, temperature, powerKw}` drive the twin. |
+| MQTT telemetry | Implemented. Set `MQTT_BROKER_URL` and `TELEMETRY_SOURCE=mqtt`; messages `{assetId, vibration, temperature, powerKw}` on `MQTT_TOPIC` drive the twin. Specs that say `pubsub` are read as `mqtt`. |
 | Camera (RTSP/ONVIF) | Implemented for viewing, through an HLS gateway URL on the camera. |
-| MQTT, OPC UA, Modbus | Planned: a read-only edge gateway ([Python services plan](python-services-plan.md), Phase 4) |
+| OPC UA, Modbus | Planned: a read-only edge gateway ([Python services plan](python-services-plan.md), Phase 4) |
 | Historian, ERP | Planned |
 
 ## API
@@ -136,13 +136,12 @@ Connections are planned per line, machine or site and saved with the twin. The *
 
 ## Enabling the AI steps
 
-1. Set `MODEL_API_KEY` (Meta Model API) in `.env.local` or Integrations.
-2. Locally: `gcloud auth application-default login` and `gcloud auth application-default set-quota-project twin-ai`, then `GOOGLE_CLOUD_PROJECT=twin-ai` and `GOOGLE_CLOUD_LOCATION=asia-southeast1` in `.env.local`.
-3. On Firebase App Hosting: store the key as the secret `twin-model-api-key` (mapped to `MODEL_API_KEY` in `apphosting.yaml`).
+1. Set `MODEL_API_KEY` (Meta Model API) in `.env.local`, in `.env` under Docker Compose, or on the Integrations page.
+2. Optionally change `META_MODEL` (default `muse-spark-1.3`).
 
 Calls retry once on 429/5xx. Muse models always reason and reasoning tokens count toward the output limit, so each call leaves headroom for them. SAM 3.1 runs in parallel with the read and never blocks it: if it fails, the boxes are Muse Spark estimates and the reading says so.
 
-Google Search grounding is billed per grounded request. When grounded results are shown, the review screen also displays the Google Search suggestions, as Google's terms require.
+Web research uses the Meta Model API's `web_search` tool; only results returned as `url_citation` annotations become citations.
 
 ## Limitations
 

@@ -87,7 +87,7 @@ export const ENTITY_TABLES: EntityTable[] = [
   },
   { table: "mobile_robots", field: "mobileRobots", shape: "list", key: [id], columns: [s("fleet_id", (i) => i.fleetId), s("line_id", (i) => i.lineId), s("robot_type", (i) => i.robotType)], description: "Mobile robot fleets (AMR / AGV / forklift / tugger)." },
   { table: "plant_rules", field: "rules", shape: "list", key: [id], columns: [s("kind", (i) => i.kind, true), n("enabled", (i) => i.enabled), s("name", (i) => i.name)], description: "Automation rules from the Playground (inventory, maintenance, connector)." },
-  { table: "data_connections", field: "dataPlan", shape: "list", key: [id], columns: [s("target", (i) => i.target), s("kind", (i) => i.kind), s("status", (i) => i.status)], description: "Planned data connections (OPC UA, MQTT, Pub/Sub, cameras…)." },
+  { table: "data_connections", field: "dataPlan", shape: "list", key: [id], columns: [s("target", (i) => i.target), s("kind", (i) => i.kind), s("status", (i) => i.status)], description: "Planned data connections (OPC UA, MQTT, cameras…)." },
   {
     table: "audit_entries",
     field: "audit",

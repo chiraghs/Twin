@@ -1,15 +1,15 @@
 import "server-only";
 import crypto from "node:crypto";
 import { DomainError } from "@/domain/errors";
-import { isCloudRun } from "./runtime";
+import { isPublicDeployment } from "./runtime";
 
 /**
  * Admin access for configuration changes (integration settings, camera sources).
  *
- * A single admin passcode (TWIN_ADMIN_KEY, kept in Secret Manager on App Hosting) unlocks an
+ * A single admin passcode (TWIN_ADMIN_KEY, a Docker secret / environment variable) unlocks an
  * HMAC-signed, httpOnly session cookie. Without a passcode, admin is open during local development
- * and locked on Cloud Run, so a public deployment is never left editable by accident.
- * Production would replace this with Firebase Auth / IAP and per-user roles.
+ * and locked when TWIN_DEPLOYMENT=public, so a public deployment is never left editable by accident.
+ * Production would replace this with an OIDC identity provider (e.g. Keycloak) and per-user roles.
  */
 
 const COOKIE = "tf_admin";
@@ -21,7 +21,7 @@ export type AdminMode = "passcode" | "open-local" | "locked";
 
 export function adminMode(): AdminMode {
   if (process.env.TWIN_ADMIN_KEY) return "passcode";
-  return isCloudRun() ? "locked" : "open-local";
+  return isPublicDeployment() ? "locked" : "open-local";
 }
 
 const keyBytes = () => crypto.createHash("sha256").update(`twin-admin:${process.env.TWIN_ADMIN_KEY ?? ""}`).digest();

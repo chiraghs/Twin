@@ -1,6 +1,10 @@
 """Twin Enterprise Backend - Main Application Entrypoint."""
-from fastapi import FastAPI
+import hmac
+import os
+
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from backend.core.config.settings import settings
 from backend.features.predictive_maintenance.api.router import router as maint_router, root_router as maint_root_router
 from backend.features.visual_quality_inspection.api.router import router as quality_router
@@ -60,6 +64,21 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+_OPEN_PATHS = {"/health", "/ready"}
+
+
+@app.middleware("http")
+async def require_service_token(request: Request, call_next):
+    """With INTELLIGENCE_BACKEND_TOKEN set, every route except health checks needs that bearer token
+    (the web app's /api/backend proxy sends it)."""
+    token = os.getenv("INTELLIGENCE_BACKEND_TOKEN", "")
+    if token and request.method != "OPTIONS" and request.url.path not in _OPEN_PATHS:
+        given = request.headers.get("authorization", "").removeprefix("Bearer ").strip()
+        if not hmac.compare_digest(given.encode(), token.encode()):
+            return JSONResponse({"detail": "Missing or invalid service token"}, status_code=401)
+    return await call_next(request)
+
 
 # Mount all 7 feature routers
 app.include_router(maint_router, prefix="/api/v1")

@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { adminActor, requireAdmin } from "@/server/admin";
 import { json, parseBody, route } from "@/server/http";
-import { applySettings, integrationStatuses, projectSetting } from "@/server/integrations/status";
+import { applySettings, integrationStatuses } from "@/server/integrations/status";
 import { SettingsError } from "@/server/settings";
 
 export const dynamic = "force-dynamic";
@@ -20,7 +20,7 @@ export const PUT = route(async (req: Request) => {
   const { values, by } = await parseBody(req, UpdateSchema);
   try {
     const changed = await applySettings(values, adminActor(by));
-    return json({ changed, project: projectSetting(), integrations: integrationStatuses() });
+    return json({ changed, integrations: integrationStatuses() });
   } catch (e) {
     if (e instanceof SettingsError) return json({ error: "Some settings are not valid", issues: e.issues }, 400);
     throw e;

@@ -1,4 +1,4 @@
-# Twin vision service (FastAPI + OpenCV) for Cloud Run.
+# Twin vision service (FastAPI + OpenCV); runs under Docker Compose.
 FROM python:3.13-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -21,5 +21,5 @@ ENV PATH="/srv/.venv/bin:$PATH"
 RUN useradd --system --uid 10001 vision
 USER vision
 
-# Cloud Run sets PORT. One worker per instance; scale with instances, not workers.
+# PORT defaults to 8080. One worker per container; scale with replicas, not workers.
 CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8080} --workers 1 --no-access-log"]

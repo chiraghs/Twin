@@ -27,7 +27,6 @@ describe("AI provider", () => {
   });
 
   it("falls back to a deterministic, metric-only narrative without credentials", async () => {
-    delete process.env.GOOGLE_CLOUD_PROJECT;
     delete process.env.MODEL_API_KEY;
     expect(aiConfig().provider).toBe("none");
     const n = await generateNarrative(input);

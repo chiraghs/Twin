@@ -1,18 +1,18 @@
 import { liveTick } from "@/domain/commands";
 import { applyExternalReadings } from "@/domain/telemetry";
 import { json, nowISO, route } from "@/server/http";
-import { pubSub } from "@/server/integrations/adapters";
+import { mqtt } from "@/server/integrations/adapters";
 import { getState, mutate } from "@/server/store";
 
 export const dynamic = "force-dynamic";
 
 export const POST = route(async () => {
-  let external: Awaited<ReturnType<typeof pubSub.pull>> = [];
-  if (pubSub.ingestionEnabled()) {
+  let external: Awaited<ReturnType<typeof mqtt.drain>> = [];
+  if (mqtt.ingestionEnabled()) {
     try {
-      external = await pubSub.pull(100);
+      external = await mqtt.drain(500);
     } catch (e) {
-      console.warn("[telemetry] Pub/Sub pull failed:", e instanceof Error ? e.message : e);
+      console.warn("[telemetry] MQTT ingestion failed:", e instanceof Error ? e.message : e);
     }
   }
   const advanced = mutate((s) => {

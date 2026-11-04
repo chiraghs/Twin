@@ -7,11 +7,13 @@ Uploads are processed in memory or a temp file that is deleted immediately; noth
 
 from __future__ import annotations
 
+import hmac
 import os
 import tempfile
 
 import cv2
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import JSONResponse
 
 from . import __version__
 from .inspection import InspectionError, inspect_image, inspect_video
@@ -28,6 +30,17 @@ app = FastAPI(
     version=__version__,
     description="Deterministic OpenCV inspection: image quality, barcode/QR reading, golden-reference comparison and video motion analysis. Results are measurements for human review.",
 )
+
+
+@app.middleware("http")
+async def require_service_token(request: Request, call_next):
+    """With VISION_SERVICE_TOKEN set, inspection endpoints need that bearer token (the web app sends it)."""
+    token = os.getenv("VISION_SERVICE_TOKEN", "")
+    if token and request.url.path != "/health":
+        given = request.headers.get("authorization", "").removeprefix("Bearer ").strip()
+        if not hmac.compare_digest(given.encode(), token.encode()):
+            return JSONResponse({"detail": "Missing or invalid service token"}, status_code=401)
+    return await call_next(request)
 
 
 def _read_limited(upload: UploadFile, limit: int, what: str) -> bytes:

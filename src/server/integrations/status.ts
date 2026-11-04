@@ -2,11 +2,10 @@ import "server-only";
 import { appendAudit } from "@/domain/audit";
 import { aiCapabilities, aiConfig, aiRuntime, modelLabel, PROVIDER_NAME, resetAiRuntime } from "@/server/ai/config";
 import { testAi } from "@/server/ai/provider";
-import { isCloudRun } from "@/server/runtime";
+import { isServerless } from "@/server/runtime";
 import { describeSettings, setting, settingsStorage, SETTINGS, updateSettings, type SettingKey, type SettingView } from "@/server/settings";
 import { mutate, persistenceInfo } from "@/server/store";
-import type { Recommendation, ScenarioRun } from "@/domain/types";
-import { bigQuery, cloudStorage, mqtt, pubSub } from "./adapters";
+import { mqtt, objectStorage } from "./adapters";
 import { testVisionService, visionService } from "./vision-service";
 import { intelligenceBackend, testIntelligenceBackend } from "./backend";
 
@@ -30,17 +29,15 @@ type Check = { ok: boolean; detail: string; at: string };
 const g = globalThis as unknown as { __twinChecks?: Record<string, Check> };
 const checks: Record<string, Check> = (g.__twinChecks ??= {});
 
-/** Which settings belong to which integration card (the shared project id is edited once, at the top of the page). */
+/** Which settings belong to which integration card. */
 export const INTEGRATION_SETTINGS: Record<string, SettingKey[]> = {
   telemetry: ["TELEMETRY_SOURCE"],
   "meta-ai": ["AI_ENABLED", "MODEL_API_KEY", "META_MODEL", "META_REASONING_MODEL"],
-  "vision-service": ["VISION_SERVICE_URL", "VISION_SERVICE_AUTH"],
-  "intelligence-backend": ["INTELLIGENCE_BACKEND_URL"],
+  "vision-service": ["VISION_SERVICE_URL", "VISION_SERVICE_TOKEN"],
+  "intelligence-backend": ["INTELLIGENCE_BACKEND_URL", "INTELLIGENCE_BACKEND_TOKEN"],
   mcp: ["TWIN_MCP_ENABLED", "TWIN_MCP_TOKEN"],
-  bigquery: ["BIGQUERY_DATASET"],
-  pubsub: ["PUBSUB_TELEMETRY_SUBSCRIPTION"],
-  gcs: ["GCS_BUCKET"],
-  mqtt: ["MQTT_BROKER_URL", "MQTT_TOPIC"],
+  mqtt: ["MQTT_BROKER_URL", "MQTT_TOPIC", "MQTT_USERNAME", "MQTT_PASSWORD"],
+  "object-storage": ["S3_ENDPOINT", "S3_BUCKET", "S3_REGION", "S3_ACCESS_KEY_ID", "S3_SECRET_ACCESS_KEY"],
 };
 const settingsFor = (id: string) => describeSettings(INTEGRATION_SETTINGS[id] ?? []);
 
@@ -77,16 +74,13 @@ export function integrationStatuses(): IntegrationStatus[] {
       aiDetail += ` ${c.detail}`;
     }
   }
-  const telemetrySource = pubSub.ingestionEnabled() ? "Pub/Sub" : "Built-in plant model";
-  const bq = stateFor("bigquery", bigQuery.configured());
-  const ps = stateFor("pubsub", pubSub.configured());
-  const gcs = stateFor("gcs", cloudStorage.configured());
+  const telemetrySource = mqtt.ingestionEnabled() ? "MQTT" : "Built-in plant model";
+  const os = stateFor("object-storage", objectStorage.configured());
   const mq = stateFor("mqtt", mqtt.configured());
   const vs = stateFor("vision-service", visionService.configured());
   const ib = stateFor("intelligence-backend", intelligenceBackend.configured());
   const persistence = persistenceInfo();
   const store = settingsStorage();
-  const onCloudRun = isCloudRun();
 
   return [
     {
@@ -95,8 +89,8 @@ export function integrationStatuses(): IntegrationStatus[] {
       service: telemetrySource,
       purpose: "Machine readings that drive the twin.",
       state: "active-simulated",
-      detail: pubSub.ingestionEnabled()
-        ? "Pub/Sub messages provide the readings for matching machines; the plant model still drives production."
+      detail: mqtt.ingestionEnabled()
+        ? `MQTT messages on ${mqtt.topic()} provide the readings for matching machines; the plant model still drives production. ${mqtt.status().received} reading(s) received since start.`
         : "The built-in plant model generates live readings (2 min of plant time every 4 s).",
       settings: settingsFor("telemetry"),
       fallback: "Always available.",
@@ -118,7 +112,7 @@ export function integrationStatuses(): IntegrationStatus[] {
     {
       id: "vision-service",
       name: "Vision service (FastAPI + OpenCV)",
-      service: "Cloud Run · Python",
+      service: "FastAPI · OpenCV (container)",
       purpose: "Machine-vision checks: golden-board comparison, barcode/QR reading, image quality and video stoppages.",
       state: vs.state,
       detail: vs.detail ?? (visionService.configured() ? `${visionService.url()} — run a connectivity test or an inspection to verify.` : "Machine-vision checks are off. Station-log reviews (and Muse AI review, if configured) still work."),
@@ -141,48 +135,24 @@ export function integrationStatuses(): IntegrationStatus[] {
     },
     mcpStatus(),
     {
-      id: "bigquery",
-      name: "BigQuery",
-      service: "BigQuery",
-      purpose: "Telemetry history, production events, health history, scenario outcomes and decisions.",
-      state: bq.state,
-      detail: bq.detail ?? (bigQuery.configured() ? `Dataset ${bigQuery.dataset()} — mirrors scenario runs and decisions when connected.` : "Local in-memory history is used."),
-      settings: settingsFor("bigquery"),
-      fallback: "Seeded local history inside the factory state.",
-      lastCheckedAt: bq.at,
-      testable: bigQuery.configured(),
-    },
-    {
-      id: "pubsub",
-      name: "Pub/Sub telemetry ingestion",
-      service: "Pub/Sub",
-      purpose: "Streaming ingestion of sensor messages.",
-      state: ps.state,
-      detail: ps.detail ?? (pubSub.configured() ? `Subscription ${pubSub.subscription()} (ingestion ${pubSub.ingestionEnabled() ? "enabled" : "disabled — set TELEMETRY_SOURCE=pubsub"}).` : "Built-in telemetry is used."),
-      settings: settingsFor("pubsub"),
-      fallback: "Built-in telemetry.",
-      lastCheckedAt: ps.at,
-      testable: pubSub.configured(),
-    },
-    {
-      id: "gcs",
-      name: "Cloud Storage documents",
-      service: "Cloud Storage",
-      purpose: "Maintenance manuals, inspection reports and images per asset.",
-      state: gcs.state,
-      detail: gcs.detail ?? (cloudStorage.configured() ? `Bucket gs://${cloudStorage.bucket()} (objects under assets/<assetId>/).` : "Bundled local demo documents are served."),
-      settings: settingsFor("gcs"),
+      id: "object-storage",
+      name: "Document storage (S3-compatible)",
+      service: "S3 API · MinIO / SeaweedFS / Ceph / AWS S3",
+      purpose: "Maintenance manuals, inspection reports and images per asset (objects under assets/<assetId>/).",
+      state: os.state,
+      detail: os.detail ?? (objectStorage.configured() ? `Bucket ${objectStorage.bucket()} at ${objectStorage.endpoint()}.` : "Bundled local demo documents are served."),
+      settings: settingsFor("object-storage"),
       fallback: "Built-in documents.",
-      lastCheckedAt: gcs.at,
-      testable: cloudStorage.configured(),
+      lastCheckedAt: os.at,
+      testable: objectStorage.configured(),
     },
     {
       id: "mqtt",
       name: "MQTT broker",
-      service: "MQTT",
-      purpose: "Shop-floor telemetry via an MQTT broker.",
+      service: "MQTT · Eclipse Mosquitto / EMQX",
+      purpose: "Shop-floor telemetry: the server subscribes to the topic; set Telemetry source to MQTT to drive the twin with it.",
       state: mq.state,
-      detail: mq.detail ?? (mqtt.configured() ? `${mqtt.url()} — reachability probe only; subscription not implemented in this MVP.` : "Not configured."),
+      detail: mq.detail ?? (mqtt.configured() ? `${mqtt.url()} · topic ${mqtt.topic()}${mqtt.ingestionEnabled() ? ` · ${mqtt.status().connected ? "subscribed" : "connecting"}` : ""}.` : "Not configured."),
       settings: settingsFor("mqtt"),
       fallback: "Built-in telemetry.",
       lastCheckedAt: mq.at,
@@ -197,7 +167,8 @@ export function integrationStatuses(): IntegrationStatus[] {
       detail: [
         `Factory twins, settings, preferences, copilot conversations and AI calls are stored in SQLite (${persistence.path}): ${persistence.totalFacilities} facilit${persistence.totalFacilities === 1 ? "y" : "ies"}, ${persistence.rows.assets ?? 0} assets, ${persistence.rows.telemetry_readings ?? 0} telemetry readings, ${persistence.rows.audit_entries ?? 0} audit entries for the active plant.`,
         persistence.lastWriteError ? `It could not be saved: ${persistence.lastWriteError}.` : "",
-        store.ok ? (store.kind === "cloud-storage" ? "Integration settings are saved to Cloud Storage." : "Integration settings are saved in SQLite (app_settings, with change history).") : `Integration settings could not be read: ${store.detail ?? "unknown error"}.`,
+        "Integration settings are saved in SQLite (app_settings, with change history).",
+        store.detail ?? "",
       ]
         .filter(Boolean)
         .join(" "),
@@ -207,14 +178,12 @@ export function integrationStatuses(): IntegrationStatus[] {
       testable: false,
     },
     {
-      id: "cloud-run",
-      name: "Cloud Run runtime",
-      service: "Cloud Run",
-      purpose: "Container hosting for the web app and API.",
-      state: onCloudRun ? "connected" : "not-configured",
-      detail: onCloudRun
-        ? `Running as service ${process.env.K_SERVICE} (revision ${process.env.K_REVISION ?? "?"}).`
-        : "Running locally. See README → Deploy to Cloud Run.",
+      id: "runtime",
+      name: "Runtime",
+      service: process.env.TWIN_DEPLOYMENT === "public" ? "Container (public deployment)" : "Node.js server",
+      purpose: "Hosting for the web app and API (Docker Compose with the intelligence backend and vision service, or any Node.js host).",
+      state: "active",
+      detail: `${isServerless() ? "Ephemeral filesystem: mount a volume for the data directory." : "Persistent data directory."} See README → Deploy with Docker Compose.`,
       settings: [],
       fallback: "Local Node.js server.",
       lastCheckedAt: null,
@@ -242,9 +211,6 @@ function mcpStatus(): IntegrationStatus {
   };
 }
 
-/** The shared Google Cloud project id, edited once for every Google Cloud integration. */
-export const projectSetting = () => describeSettings(["GOOGLE_CLOUD_PROJECT"])[0];
-
 /**
  * Apply settings changed in the UI: validate, save, forget connection checks that no longer
  * describe the current configuration, and write the change to the audit trail (never the values
@@ -256,7 +222,6 @@ export async function applySettings(changes: Record<string, string | null>, acto
   const affected = new Set<string>();
   for (const key of changed) {
     for (const [id, keys] of Object.entries(INTEGRATION_SETTINGS)) if (keys.includes(key)) affected.add(id);
-    if (key === "GOOGLE_CLOUD_PROJECT") ["bigquery", "pubsub", "gcs"].forEach((id) => affected.add(id));
   }
   for (const id of affected) delete checks[id];
   if (affected.has("meta-ai")) resetAiRuntime();
@@ -285,15 +250,9 @@ export async function testIntegration(id: string): Promise<Check> {
     switch (id) {
       case "meta-ai":
         return testAi();
-      case "bigquery":
-        if (!bigQuery.configured()) return { ok: false, detail: "Not configured (GOOGLE_CLOUD_PROJECT, BIGQUERY_DATASET)." };
-        return { ok: true, detail: await bigQuery.test() };
-      case "pubsub":
-        if (!pubSub.configured()) return { ok: false, detail: "Not configured (GOOGLE_CLOUD_PROJECT, PUBSUB_TELEMETRY_SUBSCRIPTION)." };
-        return { ok: true, detail: await pubSub.test() };
-      case "gcs":
-        if (!cloudStorage.configured()) return { ok: false, detail: "Not configured (GOOGLE_CLOUD_PROJECT, GCS_BUCKET)." };
-        return { ok: true, detail: await cloudStorage.test() };
+      case "object-storage":
+        if (!objectStorage.configured()) return { ok: false, detail: "Not configured (S3_ENDPOINT, S3_BUCKET, S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY)." };
+        return { ok: true, detail: await objectStorage.test() };
       case "mqtt":
         if (!mqtt.configured()) return { ok: false, detail: "Not configured (MQTT_BROKER_URL)." };
         return { ok: true, detail: await mqtt.test() };
@@ -315,7 +274,7 @@ export async function testIntegration(id: string): Promise<Check> {
   const check = { ...result, at };
   // Only record checks for configured integrations so unconfigured ones never appear "connected" or "error".
   const configured =
-    id === "meta-ai" ? aiConfig().provider !== "none" : id === "bigquery" ? bigQuery.configured() : id === "pubsub" ? pubSub.configured() : id === "gcs" ? cloudStorage.configured() : id === "mqtt" ? mqtt.configured() : id === "vision-service" ? visionService.configured() : id === "intelligence-backend" ? intelligenceBackend.configured() : false;
+    id === "meta-ai" ? aiConfig().provider !== "none" : id === "object-storage" ? objectStorage.configured() : id === "mqtt" ? mqtt.configured() : id === "vision-service" ? visionService.configured() : id === "intelligence-backend" ? intelligenceBackend.configured() : false;
   if (configured) checks[id] = check;
   return check;
 }
@@ -323,25 +282,4 @@ export async function testIntegration(id: string): Promise<Check> {
 /** Record the outcome of a real call (not a test) so the status reflects actual use. */
 export function recordCheck(id: string, ok: boolean, detail: string) {
   checks[id] = { ok, detail, at: new Date().toISOString() };
-}
-
-/** Best-effort mirroring of scenario runs and decisions to BigQuery when configured. Never throws. */
-export async function mirrorScenarioRun(run: ScenarioRun, factoryId: string) {
-  if (!bigQuery.configured()) return;
-  try {
-    await bigQuery.insert("scenario_outcomes", bigQuery.scenarioRows(run, factoryId));
-    checks["bigquery"] = { ok: true, detail: `Mirrored ${run.id} (${run.results.length} rows) to scenario_outcomes.`, at: new Date().toISOString() };
-  } catch (e) {
-    checks["bigquery"] = { ok: false, detail: `Mirror of ${run.id} failed: ${e instanceof Error ? e.message : String(e)}`, at: new Date().toISOString() };
-  }
-}
-
-export async function mirrorDecision(rec: Recommendation, factoryId: string) {
-  if (!bigQuery.configured()) return;
-  try {
-    await bigQuery.insert("decisions", [bigQuery.decisionRow(rec, factoryId)]);
-    checks["bigquery"] = { ok: true, detail: `Mirrored decision ${rec.id} to decisions.`, at: new Date().toISOString() };
-  } catch (e) {
-    checks["bigquery"] = { ok: false, detail: `Mirror of ${rec.id} failed: ${e instanceof Error ? e.message : String(e)}`, at: new Date().toISOString() };
-  }
 }

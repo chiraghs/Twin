@@ -1,9 +1,9 @@
 "use client";
 
-import { Database, Factory, ScanEye, Settings2, Truck, Wrench } from "lucide-react";
+import { BarChart3, Database, Factory, ScanEye, Settings2, Truck, Wrench } from "lucide-react";
 import { useBackend } from "@/client/backend";
 import { useUi } from "@/client/store";
-import { BackendDown, ConfigPanel, InspectionPanel, MaintenancePanel, OverviewPanel, PlanningPanel, SupplyPanel } from "@/components/intelligence/panels";
+import { AnalyticsPanel, BackendDown, ConfigPanel, InspectionPanel, MaintenancePanel, OverviewPanel, PlanningPanel, SupplyPanel } from "@/components/intelligence/panels";
 import { PageHeader } from "@/components/page";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/primitives";
 
@@ -27,6 +27,7 @@ export default function IntelligencePage() {
             <TabsTrigger value="inspection"><ScanEye className="mr-1.5 h-3.5 w-3.5" />AOI inspection</TabsTrigger>
             <TabsTrigger value="supply"><Truck className="mr-1.5 h-3.5 w-3.5" />Supply chain</TabsTrigger>
             <TabsTrigger value="planning"><Factory className="mr-1.5 h-3.5 w-3.5" />Planning &amp; operations</TabsTrigger>
+            <TabsTrigger value="analytics"><BarChart3 className="mr-1.5 h-3.5 w-3.5" />Analytics</TabsTrigger>
             <TabsTrigger value="config"><Settings2 className="mr-1.5 h-3.5 w-3.5" />Configuration</TabsTrigger>
           </TabsList>
           <TabsContent value="overview"><OverviewPanel /></TabsContent>
@@ -34,6 +35,7 @@ export default function IntelligencePage() {
           <TabsContent value="inspection"><InspectionPanel operator={operator} /></TabsContent>
           <TabsContent value="supply"><SupplyPanel operator={operator} /></TabsContent>
           <TabsContent value="planning"><PlanningPanel /></TabsContent>
+          <TabsContent value="analytics"><AnalyticsPanel /></TabsContent>
           <TabsContent value="config"><ConfigPanel /></TabsContent>
         </Tabs>
       )}

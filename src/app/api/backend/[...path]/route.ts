@@ -2,7 +2,7 @@ import { DomainError } from "@/domain/errors";
 import { BACKEND_ALLOWED, intelligenceBackend } from "@/server/integrations/backend";
 import { recordCheck } from "@/server/integrations/status";
 import { errorResponse } from "@/server/http";
-import { ensureFreshSettings } from "@/server/settings";
+import { ensureFreshSettings, setting } from "@/server/settings";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 150;
@@ -26,6 +26,8 @@ async function proxy(req: Request, ctx: Ctx) {
     const body = req.method === "GET" || req.method === "HEAD" ? undefined : await req.arrayBuffer();
     if (body && body.byteLength > MAX_BODY) throw new DomainError("Request is larger than 16 MB", 413);
     const headers: Record<string, string> = {};
+    const token = setting("INTELLIGENCE_BACKEND_TOKEN");
+    if (token) headers.authorization = `Bearer ${token}`;
     const ct = req.headers.get("content-type");
     if (ct) headers["content-type"] = ct;
     let res: Response;

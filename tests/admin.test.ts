@@ -13,13 +13,13 @@ const req = (cookie?: string, headers: Record<string, string> = {}) => new Reque
 describe("admin session", () => {
   afterEach(() => vi.unstubAllEnvs());
 
-  it("is open for local development, locked on Cloud Run without a passcode", async () => {
+  it("is open for local development, locked on a public deployment without a passcode", async () => {
     const { adminMode, isAdmin, requireAdmin } = await import("@/server/admin");
     vi.stubEnv("TWIN_ADMIN_KEY", "");
-    vi.stubEnv("K_SERVICE", "");
+    vi.stubEnv("TWIN_DEPLOYMENT", "");
     expect(adminMode()).toBe("open-local");
     expect(isAdmin(req())).toBe(true);
-    vi.stubEnv("K_SERVICE", "twin");
+    vi.stubEnv("TWIN_DEPLOYMENT", "public");
     expect(adminMode()).toBe("locked");
     expect(isAdmin(req())).toBe(false);
     expect(() => requireAdmin(req())).toThrow(DomainError);
@@ -57,7 +57,6 @@ describe("integration settings", () => {
   beforeEach(() => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), "tf-settings-"));
     vi.stubEnv("TWIN_DATA_DIR", dir);
-    vi.stubEnv("TWIN_CONFIG_BUCKET", "");
     vi.resetModules();
   });
   afterEach(() => {
@@ -100,30 +99,12 @@ describe("integration settings", () => {
     expect(JSON.stringify(s.describeSettings(s.SETTING_KEYS))).not.toContain("abcdefghijklmnop1234");
   });
 
-  it("with a Cloud Storage bucket, never overwrites saved settings it could not read", async () => {
-    vi.stubEnv("TWIN_CONFIG_BUCKET", "cfg-bucket");
-    let saved: { values: Record<string, string> } = { values: { MQTT_TOPIC: "plant/+/telemetry" } };
-    let unreachable = true;
-    vi.doMock("@/server/integrations/gcp", () => ({
-      gcpFetch: vi.fn(async (_url: string, init?: { method?: string; body?: string }) => {
-        if (init?.method === "POST") {
-          saved = JSON.parse(init.body!);
-          return {};
-        }
-        if (unreachable) throw new Error("This operation was aborted");
-        return saved;
-      }),
-    }));
+  it("persists saved settings in SQLite", async () => {
     const s = await import("@/server/settings");
     s.__resetSettingsForTests();
-    await expect(s.updateSettings({ MQTT_BROKER_URL: "mqtt://broker:1883" }, "Admin")).rejects.toThrow(/could not be read/);
-    expect(saved.values).toEqual({ MQTT_TOPIC: "plant/+/telemetry" });
-    unreachable = false;
     await s.updateSettings({ MQTT_BROKER_URL: "mqtt://broker:1883" }, "Admin");
-    expect(saved.values).toEqual({ MQTT_TOPIC: "plant/+/telemetry", MQTT_BROKER_URL: "mqtt://broker:1883" });
-    expect(s.setting("MQTT_TOPIC")).toBe("plant/+/telemetry");
-    expect(s.settingsStorage()).toMatchObject({ kind: "cloud-storage", ok: true });
-    vi.doUnmock("@/server/integrations/gcp");
+    expect(s.setting("MQTT_BROKER_URL")).toBe("mqtt://broker:1883");
+    expect(s.settingsStorage()).toMatchObject({ kind: "sqlite", ok: true });
   });
 
   it("drives the adapters and the AI configuration", async () => {

@@ -76,7 +76,7 @@ const fakeAi = (overrides: Partial<BuilderAi> = {}): BuilderAi => ({
   available: true,
   model: "fake",
   readBlueprint: async () => reading,
-  research: async () => ({ notes: "Fillers run 6,000–24,000 bph [R1].", references: [{ id: "R1", title: "Bottling line basics", url: "https://example.com/bottling" }], queries: ["bottling line layout"], searchEntryPoint: null }),
+  research: async () => ({ notes: "Fillers run 6,000–24,000 bph [R1].", references: [{ id: "R1", title: "Bottling line basics", url: "https://example.com/bottling" }], queries: ["bottling line layout"] }),
   draft: async () => structuredClone(draft),
   refine: async () => ({ explanation: "Added a palletizer.", ops: [{ op: "add_machine", lineId: "packing", name: "Palletizer", archetype: "palletizer" }, { op: "add_machine", lineId: "packing", name: "Teleporter", archetype: "teleporter" }] }),
   ...overrides,

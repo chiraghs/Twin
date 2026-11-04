@@ -1,4 +1,4 @@
-# Twin — GCP Predictive Maintenance, ROI Intelligence & GenAI Copilot
+# Twin — Predictive Maintenance, ROI Intelligence & GenAI Copilot
 
 ![Predictive maintenance architecture](../../../docs/architecture/predictive-maintenance.png)
 
@@ -38,15 +38,15 @@ Traditional industrial predictive maintenance stops at statistical anomaly alert
 ┌────────────────────────────────────────────────────────────────────────────────────────┐
 │                        INGESTION & CANONICAL ADAPTER LAYER                             │
 │                                                                                        │
-│   • Google Cloud Pub/Sub (`machine-readings` topic)                                    │
-│   • Apache Beam / Cloud Dataflow (Windowing, dead-letter routing, schema validation)   │
+│   • MQTT telemetry (Mosquitto / EMQX) and the local telemetry buffer                   │
+│   • Schema validation and rolling-window feature engineering in the backend            │
 │   • Source System Connectors with Data Provenance Tracking [ACTUAL vs. SIMULATED]      │
 │   • Cross-System Entity Bridge (`bridge_asset_source_id` mapping native IDs)           │
 └──────────────────────────────────────┬─────────────────────────────────────────────────┘
                                        │
                                        ▼
 ┌────────────────────────────────────────────────────────────────────────────────────────┐
-│                           BIGQUERY CANONICAL DATA WAREHOUSE                            │
+│                 CANONICAL DATA MODEL · SQLite (pm_ tables) + DuckDB                    │
 │                                                                                        │
 │   • dim_asset                     • fact_sensor_reading          • fact_work_order     │
 │   • bridge_asset_source_id        • fact_machine_prediction      • fact_inventory_cost │
@@ -104,15 +104,13 @@ backend/features/predictive_maintenance/
 │   ├── rag_service.py      # Governed RAG retrieval, prompt-injection defense, SOP index
 │   ├── copilot_service.py  # Multi-source grounded synthesis & multilingual generator
 │   └── feedback_service.py # Technician feedback recording & fact_roi_ledger linkage
-├── dataflow/               # Apache Beam streaming pipeline for Google Cloud Dataflow
-│   └── streaming_pipeline.py # Windowed aggregations, dead-letter DLQ, BigQuery writes
 ├── domain/                 # Domain logic and value objects
 │   ├── models.py           # MachineEntity, RiskCategory, ISO10816Severity
 │   └── vibration_standard.py # ISO 10816-3 calculation logic
 ├── feature_engineering/    # Real-time feature calculation
 │   └── rolling_aggregators.py # RMS vibration, mean temp, stability index, friction drift
-├── ingestion/              # Google Cloud Pub/Sub publisher
-│   └── pubsub_publisher.py # Retry-handled publisher with mock fallback
+├── ingestion/              # Telemetry ingestion
+│   └── local_buffer.py     # Buffered readings before persistence
 ├── ml/                     # Machine learning pipelines & local model registry
 │   ├── training/           # Offline model training & synthetic dataset generator
 │   ├── inference/          # FailurePredictor with scikit-learn
@@ -121,11 +119,11 @@ backend/features/predictive_maintenance/
 ├── ports/                  # Hexagonal ports / repository interfaces
 │   └── machine_repository_port.py
 ├── repositories/           # Data persistence layer
-│   ├── bigquery_repo.py    # Production Google Cloud BigQuery repository
-│   └── local_mock_repo.py  # In-memory mock repository for zero-cloud local testing
+│   ├── tables.py           # SQLite table declarations (pm_ tables)
+│   └── local_mock_repo.py  # Seeded repository, persisted to SQLite
 ├── schemas/                # Pydantic data schemas
 │   ├── sensor_reading.py   # Telemetry event validation (ranges, units, timestamps)
-│   └── canonical_models.py # Canonical data warehouse BigQuery schemas
+│   └── canonical_models.py # Canonical data model schemas
 ├── services/               # Core application domain services
 │   ├── canonical_mapping_service.py # Entity resolution & cross-system bridge
 │   ├── machine_service.py           # Fleet state & time-series retrieval
@@ -140,7 +138,7 @@ backend/features/predictive_maintenance/
 
 ## 4. Canonical Multi-Source Data Model
 
-All telemetry, maintenance, and enterprise records map to canonical schemas in BigQuery:
+All telemetry, maintenance, and enterprise records map to canonical schemas (persisted in SQLite, analysed with DuckDB):
 
 | Table Name | Description | Key Fields |
 |---|---|---|
@@ -255,7 +253,7 @@ cd dashboard && streamlit run app.py --server.port 8501
 
 ## 9. Automated Testing & Verification
 
-The test suite runs with 100% offline fallback compatibility without external GCP or database dependencies:
+The test suite runs with 100% offline fallback compatibility without external cloud services or database servers:
 
 ```bash
 # 1. Run the GenAI Maintenance Copilot test suite
@@ -287,11 +285,11 @@ PYTHONPATH=. python3 backend/tests/test_core.py
 ## 10. Deployment & Infrastructure
 
 ### Local Development Mode
-No active Google Cloud credentials required. In the absence of live GCP resources, the platform uses:
-- In-memory `LocalMockMachineRepository` seeded with 20 realistic assets.
-- In-memory Pub/Sub and BigQuery abstractions with provenance explicitly marked as `[SIMULATED]`.
+No cloud credentials required. The platform uses:
+- `LocalMockMachineRepository` seeded with 20 realistic assets, persisted to the shared SQLite database.
+- Simulated telemetry with provenance explicitly marked as `[SIMULATED]`; MQTT ingestion when a broker is configured.
 
-### Production GCP Deployment
-- **Terraform Configuration**: [`infra/terraform/`](file:///Volumes/DiskD/HACKATHONS/Twin/infra/terraform) deploys the Pub/Sub topic, BigQuery datasets, Dataflow streaming jobs, and IAM service accounts.
-- **BigQuery Schemas**: [`backend/sql/`](file:///Volumes/DiskD/HACKATHONS/Twin/backend/sql) contains BigQuery table definitions and partition schemes.
-- **Containerization**: Standard Docker deployment for Cloud Run and Kubernetes.
+### Deployment
+- **Docker Compose**: `docker compose up --build` runs the backend next to the web app on the shared `twin-data` volume.
+- **Data model**: [docs/data-model.md](../../../docs/data-model.md) lists every `pm_` table with its columns and indexes.
+- **Scaling**: PostgreSQL for the tables, ClickHouse or Iceberg + Trino/Presto for analytics, Kubernetes for the containers (see the top-level README).

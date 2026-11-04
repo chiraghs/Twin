@@ -1,7 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
 
 const PORT = Number(process.env.E2E_PORT ?? 3000);
-/** Set E2E_BASE_URL to test a deployed instance (e.g. Firebase App Hosting) instead of a local server. */
+/** Set E2E_BASE_URL to test a deployed instance (e.g. a Docker Compose deployment) instead of a local server. */
 const REMOTE = process.env.E2E_BASE_URL;
 
 export default defineConfig({

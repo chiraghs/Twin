@@ -31,7 +31,7 @@ To ensure consistency, maintainability, and loose coupling, every feature follow
 ## The 7 Intelligence Domains
 
 1. [Predictive Maintenance](predictive_maintenance/README.md): Remaining Useful Life (RUL), ISO 10816 vibration classification, FFT spectrum anomaly detection.
-2. [Visual Quality Inspection](visual_quality_inspection/README.md): Automated Optical Inspection (AOI) with Muse Spark defect classification, SAM 3.1 localisation and grounded advisory explanations, OpenCV golden template homography alignment, IPC-A-610 Class 2 standards, BigQuery lakehouse, and auditable human review.
+2. [Visual Quality Inspection](visual_quality_inspection/README.md): Automated Optical Inspection (AOI) with Muse Spark defect classification, SAM 3.1 localisation and grounded advisory explanations, OpenCV golden template homography alignment, IPC-A-610 Class 2 standards, SQLite persistence with DuckDB analytics, and auditable human review.
 3. [Production Optimization](production_optimization/README.md): Line OEE calculation, Theory of Constraints bottleneck identification, dynamic dispatching.
 4. [Supply Chain Intelligence](supply_chain_intelligence/README.md): Dynamic BOM tree explosion, multi-echelon safety stock, supplier disruption risk.
 5. [Demand Forecasting](demand_forecasting/README.md): Hierarchical time-series forecasting, order backlog pacing, Monte Carlo demand scenarios.
