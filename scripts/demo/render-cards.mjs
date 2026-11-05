@@ -22,13 +22,12 @@ const cards = {
     <div style="font-size:46px;font-weight:600;color:#dbe6ff;margin-top:10px">Numbers from the twin. Decisions by people.</div>
     <div style="font-size:30px;color:#93a4c3;margin-top:34px">Powered by Meta's Muse models · open weights for plant-private AI</div>
     <div style="font-size:28px;color:#8db6ff;margin-top:40px">github.com/chiraghs/Twin</div>
-    <div style="font-size:20px;color:#6b7a96;margin-top:40px">AeroBreeze Fans and its suppliers are fictional demo data. Opening images generated with Muse Image.</div>
   </div>`),
 };
 
 // Aurora Electronics variants (electronics story)
 cards["title-e"] = cards.title.replace("AEROBREEZE FANS · BENGALURU", "AURORA ELECTRONICS · PUNE");
-cards["end-e"] = cards.end.replace("AeroBreeze Fans and its suppliers are fictional demo data.", "Aurora Electronics and its suppliers are fictional demo data.");
+cards["end-e"] = cards.end;
 
 const badge = (text) => `<html><body style="margin:0;width:1920px;height:1080px;background:transparent">
   <div style="position:absolute;top:36px;right:40px;padding:14px 22px;border-radius:14px;background:rgba(76,141,255,.95);color:#fff;${FONT}font-weight:700;font-size:28px;box-shadow:0 10px 30px rgba(0,0,0,.35)">⏩ ${text}</div></body></html>`;

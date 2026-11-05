@@ -112,12 +112,12 @@ segments.append(seg_bld)
 seg_ply = make_clip(RAW_WEBM, m["builder"] + 1.0, m["end"], target_dur=13.0)
 segments.append(seg_ply)
 
-# Part 9: Architecture Walkthrough (32.0s)
-seg_arch = make_still(REPO_DIR / "docs/architecture/twin-architecture.png", 32.0, zoom=False)
+# Part 9: Architecture Walkthrough (16.0s - reduced to ~15s)
+seg_arch = make_still(REPO_DIR / "docs/architecture/twin-architecture.png", 16.0, zoom=False)
 segments.append(seg_arch)
 
-# Part 10: Closing Card (9.0s)
-seg_end = make_still(CARDS_DIR / "end-e.png", 9.0, zoom=False)
+# Part 10: Closing Card (8.0s)
+seg_end = make_still(CARDS_DIR / "end-e.png", 8.0, zoom=False)
 segments.append(seg_end)
 
 print("Concatenating video segments...")
@@ -142,8 +142,8 @@ print(f"Total video duration: {video_dur:.2f}s")
 # 6. Approvals: 144.0 - 163.0s (audio starts at 144.5s, duration 18.0s)
 # 7. Builder: 163.0 - 181.0s (audio starts at 163.5s, duration 16.9s)
 # 8. Playground: 181.0 - 194.0s (audio starts at 181.5s, duration 12.1s)
-# 9. Architecture: 194.0 - 226.0s (audio starts at 194.5s, duration 31.0s)
-# 10. Closing: 226.0 - 235.0s (audio starts at 226.5s, duration 8.7s)
+# 9. Architecture: 194.0 - 210.0s (audio starts at 194.5s, duration 15.5s)
+# 10. Closing: 210.0 - 218.0s (audio starts at 210.5s, duration 7.2s)
 
 audio_schedule = [
     (0.8, AUDIO_DIR / "s00_hook.wav"),
@@ -156,7 +156,7 @@ audio_schedule = [
     (163.5, AUDIO_DIR / "s07_builder.wav"),
     (181.5, AUDIO_DIR / "s08_playground.wav"),
     (194.5, AUDIO_DIR / "s09_arch.wav"),
-    (226.5, AUDIO_DIR / "s10_closing.wav"),
+    (210.5, AUDIO_DIR / "s10_closing.wav"),
 ]
 
 print("Mixing master audio track...")
