@@ -112,12 +112,12 @@ segments.append(seg_bld)
 seg_ply = make_clip(RAW_WEBM, m["builder"] + 1.0, m["end"], target_dur=13.0)
 segments.append(seg_ply)
 
-# Part 9: Architecture Walkthrough (16.0s - reduced to ~15s)
-seg_arch = make_still(REPO_DIR / "docs/architecture/twin-architecture.png", 16.0, zoom=False)
+# Part 9: Architecture Walkthrough (14.8s - 3:14 to 3:28.8)
+seg_arch = make_still(REPO_DIR / "docs/architecture/twin-architecture.png", 14.8, zoom=False)
 segments.append(seg_arch)
 
-# Part 10: Closing Card (8.0s)
-seg_end = make_still(CARDS_DIR / "end-e.png", 8.0, zoom=False)
+# Part 10: Closing Card (4.2s - 3:28.8 to 3:33.00 end)
+seg_end = make_still(CARDS_DIR / "end-e.png", 4.2, zoom=False)
 segments.append(seg_end)
 
 print("Concatenating video segments...")
@@ -132,7 +132,7 @@ video_dur = dur(raw_video)
 print(f"Total video duration: {video_dur:.2f}s")
 
 # ── 2. Precise Audio Track Assembly ──────────────────────────────────────────
-# Schedule matching the exact segment boundaries:
+# Schedule matching the exact segment boundaries ending at 3:33 (213.0s):
 # 0. Hook: 0:00 - 40.0s (audio starts at 0.8s, duration 38.4s -> finishes at 39.2s)
 # 1. Landing: 40.0 - 47.0s (audio starts at 40.2s, duration 6.8s)
 # 2. Command: 47.0 - 73.0s (audio starts at 47.5s, duration 24.9s)
@@ -142,8 +142,8 @@ print(f"Total video duration: {video_dur:.2f}s")
 # 6. Approvals: 144.0 - 163.0s (audio starts at 144.5s, duration 18.0s)
 # 7. Builder: 163.0 - 181.0s (audio starts at 163.5s, duration 16.9s)
 # 8. Playground: 181.0 - 194.0s (audio starts at 181.5s, duration 12.1s)
-# 9. Architecture: 194.0 - 210.0s (audio starts at 194.5s, duration 15.5s)
-# 10. Closing: 210.0 - 218.0s (audio starts at 210.5s, duration 7.2s)
+# 9. Architecture: 194.0 - 208.8s (audio starts at 194.3s, duration 14.2s)
+# 10. Closing: 208.8 - 213.0s (audio starts at 208.5s, duration 4.15s -> finishes at 212.65s)
 
 audio_schedule = [
     (0.8, AUDIO_DIR / "s00_hook.wav"),
@@ -155,8 +155,8 @@ audio_schedule = [
     (144.5, AUDIO_DIR / "s06_approvals.wav"),
     (163.5, AUDIO_DIR / "s07_builder.wav"),
     (181.5, AUDIO_DIR / "s08_playground.wav"),
-    (194.5, AUDIO_DIR / "s09_arch.wav"),
-    (210.5, AUDIO_DIR / "s10_closing.wav"),
+    (194.3, AUDIO_DIR / "s09_arch.wav"),
+    (208.5, AUDIO_DIR / "s10_closing.wav"),
 ]
 
 print("Mixing master audio track...")
