@@ -25,7 +25,7 @@ function buildServer() {
         title: t.title,
         description: t.description,
         inputSchema: t.shape,
-        annotations: { readOnlyHint: t.effect === "read", destructiveHint: false, idempotentHint: t.effect === "read", openWorldHint: false },
+        annotations: { readOnlyHint: t.effect !== "propose", destructiveHint: false, idempotentHint: t.effect !== "propose", openWorldHint: false },
       },
       async (args: unknown) => {
         try {

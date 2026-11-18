@@ -5,7 +5,8 @@ import { createJSONStorage, persist } from "zustand/middleware";
 import { serverStorage } from "./server-storage";
 import type { CopilotEvent } from "@/lib/contracts";
 import { api } from "./api";
-import { useFactory } from "./store";
+import { useFactory, useUi } from "./store";
+import { useView3d } from "./view3d";
 
 export interface TraceStep {
   agent: string;
@@ -45,6 +46,18 @@ interface CopilotStore {
   reset: () => void;
 }
 
+/** The copilot pointed the 3D twin at something: switch to the 3D view and fly there. */
+function showIn3d(preview: string) {
+  try {
+    const shown = (JSON.parse(preview) as { shown?: string }).shown;
+    if (!shown) return;
+    useUi.getState().setTwinView("3d");
+    useView3d.getState().go(shown === "overview" ? { kind: "reset" } : { kind: "focus", id: shown }, "copilot");
+  } catch {
+    /* preview truncated or not JSON: nothing to show */
+  }
+}
+
 const newSession = () => `s-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 let seq = 1;
 
@@ -70,6 +83,7 @@ export const useCopilot = create<CopilotStore>()(
             if (e.type === "tool_call") update(id, (t) => ({ ...t, trace: [...t.trace, { agent: e.agent, tool: e.tool, args: e.args, ok: null }] }));
             else if (e.type === "tool_result") {
               if (e.tool === "propose_plan" && e.ok) proposed = true;
+              if (e.tool === "show_in_3d" && e.ok) showIn3d(e.preview);
               update(id, (t) => {
                 const trace = [...t.trace];
                 const i = trace.findIndex((x) => x.tool === e.tool && x.ok === null);

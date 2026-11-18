@@ -12,6 +12,7 @@ import { highlightFor, useFactory, useUi, useWorkbench } from "@/client/store";
 import { KeyValue, PageHeader, SectionLabel } from "@/components/page";
 import { AssumptionsPanel, PlanLevers } from "@/components/simulator/levers";
 import { ComparisonTable, ConditionChart, OutputChart, ScenarioCards, Timeline, scenarioColor } from "@/components/simulator/compare";
+import { ExperimentPanel } from "@/components/simulator/experiment";
 import { TwinCanvas } from "@/components/twin/twin-canvas";
 import { IsoMini } from "@/components/iso/iso-card";
 import { Badge, Button, Card, CardBody, CardHeader, Select, Tabs, TabsContent, TabsList, TabsTrigger, Tip } from "@/components/ui/primitives";
@@ -230,6 +231,7 @@ function Simulator() {
             <TabsList>
               <TabsTrigger value="compare">Compare scenarios</TabsTrigger>
               <TabsTrigger value="detail">Selected scenario</TabsTrigger>
+              <TabsTrigger value="experiment">Experiment</TabsTrigger>
             </TabsList>
             <TabsContent value="compare" className="mt-3 space-y-4">
               <Card>
@@ -283,6 +285,10 @@ function Simulator() {
                   <ComparisonTable results={results} selectedId={selected.definition.id} />
                 </CardBody>
               </Card>
+            </TabsContent>
+
+            <TabsContent value="experiment" className="mt-3">
+              {wb.targetAssetId && <ExperimentPanel defs={defs} targetAssetId={wb.targetAssetId} />}
             </TabsContent>
 
             <TabsContent value="detail" className="mt-3 space-y-4">

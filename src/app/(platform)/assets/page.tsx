@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { ArrowDown, ArrowUp, FileDown, Search, SlidersHorizontal } from "lucide-react";
 import { useFactory, useUi } from "@/client/store";
 import { AssetPanel } from "@/components/assets/asset-panel";
+import { ModelLibrary } from "@/components/assets/model-library";
 import { PageHeader } from "@/components/page";
 import { Badge, Card, Input, Meter, Select, Sheet } from "@/components/ui/primitives";
 import { RiskBadge, StatusBadge, healthTone } from "@/components/ui/status";
@@ -213,6 +214,7 @@ export default function AssetsPage() {
           {!rows.length && <p className="p-8 text-center text-[13px] text-muted">No assets match these filters.</p>}
         </div>
       </Card>
+      <ModelLibrary />
       <Sheet open={!!open} onOpenChange={(o) => !o && setOpenId(null)} title={open ? `${open.id} · ${open.name}` : "Asset"} width="max-w-lg">
         {open && <AssetPanel state={state} asset={open} compact />}
       </Sheet>

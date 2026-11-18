@@ -2,12 +2,16 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Clapperboard, Columns2, Film, LayoutGrid, Lock, MonitorPlay, Radio, ScanSearch, Sparkles, Video } from "lucide-react";
+import dynamic from "next/dynamic";
+import { useRouter } from "next/navigation";
+import { Box, Clapperboard, Columns2, Film, LayoutGrid, Lock, MonitorPlay, Radio, ScanSearch, Sparkles, Trash2, Video } from "lucide-react";
+import { useView3d } from "@/client/view3d";
+import { LIVE_CAMERA_LIMIT } from "@/domain/views";
 import { useAdmin } from "@/client/admin";
 import { aiShortName, useAiInfo } from "@/client/ai";
 import { contactSheet } from "@/client/frames";
 import { integrationState, useIntegrations } from "@/client/integrations";
-import { useFactory } from "@/client/store";
+import { useFactory, useUi } from "@/client/store";
 import { AdminAccess } from "@/components/admin/admin-access";
 import { PageHeader, SectionLabel } from "@/components/page";
 import { Badge, Button, Card, CardBody, CardHeader, Input, Label, Select, type Tone } from "@/components/ui/primitives";
@@ -17,6 +21,11 @@ import { clipsFor, FOOTAGE, getClip, suggestedClip } from "@/domain/footage";
 import { cameraView } from "@/domain/quality";
 import type { Camera, CameraStreamKind, FactoryState } from "@/domain/types";
 import { cn } from "@/lib/cn";
+
+const VirtualCameraFeed = dynamic(() => import("@/components/three/virtual-camera").then((m) => m.VirtualCameraFeed), {
+  ssr: false,
+  loading: () => <div className="h-full w-full animate-pulse bg-black" />,
+});
 
 type Availability = { aiReview: { ok: boolean; why: string }; opencv: { ok: boolean; why: string } };
 
@@ -133,6 +142,8 @@ export function ControlRoom() {
           {selected && <Inspector key={`${selected.id}:${selected.stream.kind}:${selected.stream.clipId ?? selected.stream.url ?? ""}`} state={state} camera={selected} />}
         </div>
       </Card>
+
+      <VirtualCameras state={state} />
 
       <div className="grid gap-4 xl:grid-cols-[1fr_360px]">
         <FootageLibrary selected={selected ?? null} />
@@ -442,3 +453,68 @@ function SwitchLog({ state }: { state: FactoryState }) {
 }
 
 
+
+/** Virtual cameras: viewpoints saved in the 3D twin, rendered live from the twin itself. */
+function VirtualCameras({ state }: { state: FactoryState }) {
+  const { views, load, remove, go, facilityId } = useView3d();
+  const setTwinView = useUi((s) => s.setTwinView);
+  const router = useRouter();
+  useEffect(() => {
+    void load(facilityId !== null && facilityId !== state.profile.id);
+  }, [load, facilityId, state.profile.id]);
+  const cams = views.filter((v) => v.kind === "camera");
+  const live = cams.slice(0, LIVE_CAMERA_LIMIT);
+  return (
+    <Card>
+      <CardHeader
+        title="Virtual cameras"
+        description="Any viewpoint in the 3D twin, live on the wall. In the 3D view, orbit to a spot, open Views, tick Virtual camera and save."
+        icon={<Box className="h-4 w-4" />}
+        actions={<Badge tone="neutral">{cams.length} saved</Badge>}
+      />
+      <CardBody>
+        {cams.length === 0 ? (
+          <p className="text-[12.5px] text-muted">
+            No virtual cameras yet.{" "}
+            <Link href="/twin" onClick={() => setTwinView("3d")} className="text-accent-ink underline">
+              Open the 3D twin
+            </Link>{" "}
+            to add one.
+          </p>
+        ) : (
+          <>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2" data-testid="virtual-wall">
+              {live.map((v) => (
+                <div key={v.id} className="overflow-hidden rounded-lg border border-line bg-black">
+                  <div className="relative aspect-video">
+                    <VirtualCameraFeed state={state} view={v} />
+                    <span className="pointer-events-none absolute top-2 left-2 flex items-center gap-1.5 rounded bg-black/60 px-1.5 py-0.5 text-[10.5px] font-medium text-white">
+                      <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-red-500" /> {v.name} · virtual
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2 border-t border-line bg-surface px-2 py-1.5 text-[11.5px]">
+                    <span className="truncate text-muted">by {v.createdBy}</span>
+                    <button
+                      className="ml-auto text-accent-ink hover:underline"
+                      onClick={() => {
+                        setTwinView("3d");
+                        go({ kind: "pose", position: v.position, target: v.target });
+                        router.push("/twin");
+                      }}
+                    >
+                      Open in 3D
+                    </button>
+                    <button aria-label={`Delete virtual camera ${v.name}`} className="text-muted hover:text-critical" onClick={() => void remove(v.id)}>
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+            {cams.length > live.length && <p className="mt-2 text-[11.5px] text-muted">Showing the first {LIVE_CAMERA_LIMIT} live; each live feed renders the whole plant.</p>}
+          </>
+        )}
+      </CardBody>
+    </Card>
+  );
+}

@@ -51,19 +51,19 @@ const SPECIALISTS: AgentDef[] = [
     name: "maintenance_analyst",
     description: "Diagnoses machine condition: health, vibration and temperature trends, time to alarm or trip, incidents and the last multi-agent analysis.",
     instruction: `You are the maintenance analyst for a factory digital twin. Find the machines at risk and explain their condition with evidence.\n${SPECIALIST_RULES}`,
-    tools: ["list_assets", "diagnose_asset", "list_incidents", "get_latest_analysis"],
+    tools: ["list_assets", "diagnose_asset", "list_incidents", "get_latest_analysis", "get_live_signals", "get_asset_telemetry", "scan_anomalies", "list_work_orders", "get_maintenance_guide", "get_maintenance_history", "get_asset_shell"],
   },
   {
     name: "quality_analyst",
     description: "Explains inspection results: first-pass yield, reject rates, defect Pareto, camera views, and links between machine condition and rejects.",
     instruction: `You are the quality analyst. Explain what the inspection stations and cameras show and what is driving rejects.\n${SPECIALIST_RULES}`,
-    tools: ["get_quality", "get_camera_view"],
+    tools: ["get_quality", "get_camera_view", "list_cameras", "get_kpi_trend"],
   },
   {
     name: "planning_analyst",
     description: "Evaluates delivery risk and operating plans: customer orders, inventory coverage, and what-if simulation of maintenance, speed and reroute options.",
     instruction: `You are the planning analyst. Use what-if simulation to compare plans; state the ranking and the trade-offs in delivery, cost and risk.\n${SPECIALIST_RULES}`,
-    tools: ["get_orders", "get_inventory", "run_what_if"],
+    tools: ["get_orders", "get_inventory", "run_what_if", "run_experiment", "get_order", "list_products", "list_lines", "get_line_flow", "get_amr_fleet"],
   },
 ];
 
@@ -76,9 +76,10 @@ const COORDINATOR: AgentDef = {
     "Report only figures that appear in tool or specialist results. Never invent or estimate numbers yourself. If something is unknown, say so.",
     "The twin runs on a deterministic plant model with simulated demo data. Forecasts are model estimates.",
     "You cannot control equipment, approve, execute or roll back anything. If the user explicitly asks to propose or submit a plan, call propose_plan; it pauses for the user's confirmation and then creates a pending recommendation that a person must approve in Approvals. Never call propose_plan unprompted.",
+    "When the user asks to show, find or look at a machine, robot, camera or the whole plant, call show_in_3d with its id (or \"overview\"); it moves their 3D view and changes nothing in the plant.",
     "Answer concisely in plain language: a one-line answer first, then up to 5 bullets with the key evidence (with ids and units). Use h+N for times.",
   ].join("\n"),
-  tools: ["get_plant_overview", "search_audit", "propose_plan"],
+  tools: ["get_plant_overview", "search_audit", "propose_plan", "get_kpis", "list_alarms", "list_recommendations", "get_recommendation", "show_in_3d"],
   specialists: SPECIALISTS,
 };
 
@@ -126,7 +127,7 @@ export function copilotInfo() {
     model: cfg.provider === "none" ? null : modelLabel(cfg),
     framework: "Twin agent runtime on Meta Model API (Muse Spark function calling)",
     agents: [
-      { name: "twin_copilot", role: "Coordinator", tools: ["get_plant_overview", "search_audit", "propose_plan (needs your confirmation)"] },
+      { name: "twin_copilot", role: "Coordinator", tools: [...COORDINATOR.tools.filter((t) => t !== "propose_plan"), "propose_plan (needs your confirmation)"] },
       ...SPECIALISTS.map((s) => ({ name: s.name, role: s.description.split(":")[0], tools: s.tools })),
     ],
   };

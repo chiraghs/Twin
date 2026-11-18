@@ -14,6 +14,7 @@ from backend.features.demand_forecasting.api.router import router as demand_rout
 from backend.features.waste_reduction.api.router import router as waste_router
 from backend.features.operational_copilots.api.router import router as copilot_router
 from backend.core.api.data_router import router as data_router
+from backend.core.api.field_router import router as field_router
 from backend.features.twin_bridge.router import router as twin_router
 
 tags_metadata = [
@@ -94,6 +95,7 @@ app.include_router(demand_router, prefix="/api/v1")
 app.include_router(waste_router, prefix="/api/v1")
 app.include_router(copilot_router, prefix="/api/v1")
 app.include_router(data_router, prefix="/api/v1")
+app.include_router(field_router, prefix="/api/v1")
 app.include_router(twin_router, prefix="/api/v1")
 
 # Mount root machine endpoints for top-level access

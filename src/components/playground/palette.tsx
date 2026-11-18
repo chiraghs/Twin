@@ -1,6 +1,8 @@
 "use client";
 
-import { Bot, Forklift, GripVertical, Truck } from "lucide-react";
+import { useState } from "react";
+import { Bot, Forklift, GripVertical, Search, Truck } from "lucide-react";
+import { MATERIAL_LABEL, PORTS, portSummary } from "@/domain/ports";
 import { ARCHETYPES, ASSET_KINDS } from "@/domain/archetypes";
 import type { AssetKind } from "@/domain/types";
 import { SectionLabel } from "@/components/page";
@@ -19,6 +21,15 @@ const FLEETS: { label: string; hint: string; item: Extract<PaletteItem, { type: 
  * selected line (or a new line when none is selected).
  */
 export function Palette({ onAdd }: { onAdd: (item: PaletteItem) => void }) {
+  const [q, setQ] = useState("");
+  const query = q.trim().toLowerCase();
+  // Catalogue search: name, what the type covers in real plants, and the materials it takes or makes.
+  const kinds = ASSET_KINDS.filter((k: AssetKind) => {
+    if (!query) return true;
+    const p = PORTS[k];
+    const hay = [k, KIND_SHORT[k], ARCHETYPES[k].name, ARCHETYPES[k].covers, ...p.accepts.map((m) => MATERIAL_LABEL[m]), p.delivers === "same" ? "" : MATERIAL_LABEL[p.delivers]].join(" ").toLowerCase();
+    return query.split(/\s+/).every((w) => hay.includes(w));
+  });
   const start = (item: PaletteItem) => (e: React.DragEvent) => {
     e.dataTransfer.setData(DRAG_TYPE, JSON.stringify(item));
     e.dataTransfer.effectAllowed = "copy";
@@ -27,20 +38,28 @@ export function Palette({ onAdd }: { onAdd: (item: PaletteItem) => void }) {
     <div className="space-y-4" data-testid="playground-palette">
       <div>
         <SectionLabel>Machines</SectionLabel>
-        <ul className="mt-1.5 grid grid-cols-2 gap-1 lg:grid-cols-1">
-          {ASSET_KINDS.map((k: AssetKind) => (
+        <label className="mt-1.5 flex h-7 items-center gap-1.5 rounded-lg border border-line bg-shell px-2 text-[12px] focus-within:border-accent">
+          <Search className="h-3.5 w-3.5 shrink-0 text-muted" />
+          <input aria-label="Search machine types" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search: oven, welding, bulk…" className="min-w-0 flex-1 bg-transparent text-ink outline-none" />
+        </label>
+        <ul className="mt-1.5 grid grid-cols-2 gap-1 lg:grid-cols-1" data-testid="palette-machines">
+          {kinds.length === 0 && <li className="text-[11.5px] text-muted">No machine type matches.</li>}
+          {kinds.map((k: AssetKind) => (
             <li key={k}>
               <button
                 type="button"
                 draggable
                 onDragStart={start({ type: "machine", archetype: k })}
                 onClick={() => onAdd({ type: "machine", archetype: k })}
-                title={`${ARCHETYPES[k].name}: ${ARCHETYPES[k].covers}`}
+                title={`${ARCHETYPES[k].name}: ${ARCHETYPES[k].covers}\nPorts: ${portSummary(k)}`}
                 data-testid={`pg-palette-${k}`}
                 className="group flex w-full cursor-grab items-center gap-1.5 rounded-lg border border-line bg-surface px-2 py-1 text-left text-[12.5px] text-ink hover:border-accent/50 hover:bg-surface-2 active:cursor-grabbing"
               >
                 <GripVertical className="h-3.5 w-3.5 shrink-0 text-muted group-hover:text-ink-2" />
-                <span className="truncate">{KIND_SHORT[k]}</span>
+                <span className="min-w-0">
+                  <span className="block truncate">{KIND_SHORT[k]}</span>
+                  <span className="block truncate text-[10px] text-muted">{portSummary(k)}</span>
+                </span>
               </button>
             </li>
           ))}

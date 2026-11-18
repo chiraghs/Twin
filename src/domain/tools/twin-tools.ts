@@ -19,6 +19,7 @@ import { addRecommendation, buildRecommendation } from "../recommendations";
 import { addScenarioRun, pickFocusAsset, presetScenarios } from "../scenarios";
 import { rankScenarios, simulateScenarios } from "../simulation";
 import type { FactoryState, ScenarioDefinition, ScenarioResult, ScenarioRun } from "../types";
+import { OPERATE_TOOLS, type ToolEffect } from "./operate-tools";
 
 export interface ToolStore {
   get(): FactoryState;
@@ -31,8 +32,8 @@ export interface TwinTool<S extends z.ZodRawShape = z.ZodRawShape> {
   title: string;
   description: string;
   shape: S;
-  /** read: no state change · propose: creates a pending item a human must approve */
-  effect: "read" | "propose";
+  /** read: no state change · propose: creates a pending item a human must approve · ui: the app reacts, the twin doesn't change */
+  effect: ToolEffect;
   run(store: ToolStore, args: z.infer<z.ZodObject<S>>, actor: string): unknown;
 }
 
@@ -439,6 +440,7 @@ export const TWIN_TOOLS = [
       });
     },
   }),
+  ...OPERATE_TOOLS,
 ] as const satisfies readonly TwinTool[];
 
 export type TwinToolName = (typeof TWIN_TOOLS)[number]["name"];

@@ -8,8 +8,18 @@ import type { AssetKind, MobileRobot } from "@/domain/types";
 import type { PlaygroundSelection } from "@/client/playground";
 import { amrPose, type AmrPath } from "@/components/three/amr-paths";
 import { FOOTPRINT, type PlacedMachine } from "@/components/iso/model";
+import { canFollow, MATERIAL_LABEL } from "@/domain/ports";
 import { cn } from "@/lib/cn";
 import { alignToLine, dropTarget, extents, hitMachine, KIND_SHORT, pinOps, rotOf, snap, type FloorModel } from "./model";
+
+/** Would `targetKind` accept what machine `fromId` delivers, if it came next in that machine's line? */
+export function connectVerdict(spec: TwinSpec, fromId: string, targetKind: AssetKind) {
+  for (const line of spec.lines) {
+    const i = line.machines.findIndex((m) => m.id === fromId);
+    if (i >= 0) return canFollow(line.machines.map((m) => m.archetype as AssetKind), i, targetKind);
+  }
+  return null;
+}
 
 /** What the palette puts on the drag: a machine type or a robot fleet. */
 export type PaletteItem = { type: "machine"; archetype: AssetKind } | { type: "fleet"; mission: MobileRobot["mission"]; robotType: MobileRobot["robotType"] };
@@ -48,6 +58,12 @@ export function Floor({
   const [size, setSize] = useState({ w: 800, h: 520 });
   const [view, setView] = useState<{ cx: number; cy: number; s: number } | null>(null);
   const [drag, setDrag] = useState<Drag>(null);
+  const [rejected, setRejected] = useState<string | null>(null);
+  useEffect(() => {
+    if (!rejected) return;
+    const t = setTimeout(() => setRejected(null), 4000);
+    return () => clearTimeout(t);
+  }, [rejected]);
   const [hover, setHover] = useState<string | null>(null);
 
   useEffect(() => {
@@ -155,7 +171,9 @@ export function Floor({
       edit([...pinOps(spec, layout, d.id), { op: "place_machine", machineId: d.id, x: d.x, y: d.y, rot: pm ? rotOf(pm) : 0 }]);
     } else if (d.kind === "connect") {
       const to = hitMachine(layout, d.x, d.y, d.from);
-      if (to) edit([{ op: "connect", machineId: d.from, targetId: to.m.id }]);
+      const verdict = to ? connectVerdict(spec, d.from, to.m.kind) : null;
+      if (to && verdict && !verdict.ok) setRejected(`Not connected: ${verdict.reason}`);
+      else if (to) edit([{ op: "connect", machineId: d.from, targetId: to.m.id }]);
     }
   };
 
@@ -176,6 +194,8 @@ export function Floor({
   const moving = drag?.kind === "move" ? drag : null;
   const connecting = drag?.kind === "connect" ? drag : null;
   const connectTarget = connecting ? hitMachine(layout, connecting.x, connecting.y, connecting.from) : null;
+  const verdict = connecting && connectTarget ? connectVerdict(spec, connecting.from, connectTarget.m.kind) : null;
+  const badTarget = !!verdict && !verdict.ok;
 
   // While dragging a machine, draw it (and its belts) at the pointer.
   const placed = (pm: PlacedMachine) => (moving && moving.id === pm.m.id ? { ...pm, x: moving.x, y: moving.y } : pm);
@@ -308,7 +328,7 @@ export function Floor({
                     rx={0.12}
                     fill={pm.color}
                     fillOpacity={isSel || isTarget ? 0.42 : 0.24}
-                    stroke={isSel ? "var(--color-accent)" : isTarget ? "var(--color-agent)" : pm.color}
+                    stroke={isSel ? "var(--color-accent)" : isTarget ? (badTarget ? "var(--color-critical)" : "var(--color-agent)") : pm.color}
                     strokeWidth={(isSel || isTarget ? 2.4 : 1.2) * fs}
                     className={routeFleet ? "" : "cursor-move"}
                   />
@@ -387,7 +407,16 @@ export function Floor({
       )}
       {connecting && (
         <div className="pointer-events-none absolute top-2 left-1/2 -translate-x-1/2 rounded-lg border border-agent/50 bg-shell/95 px-3 py-1.5 text-[12px] text-agent-ink shadow-xl">
-          {connectTarget ? `Release: ${connectTarget.m.name} will come next` : "Drop on the machine that should come next"}
+          {!connectTarget
+            ? "Drop on the machine that should come next"
+            : verdict && !verdict.ok
+              ? `Can't connect: ${verdict.reason}`
+              : `Release: ${connectTarget.m.name} will come next${verdict?.ok ? ` (${MATERIAL_LABEL[verdict.material]})` : ""}`}
+        </div>
+      )}
+      {rejected && !connecting && (
+        <div role="alert" className="pointer-events-none absolute top-2 left-1/2 -translate-x-1/2 rounded-lg border border-critical/50 bg-shell/95 px-3 py-1.5 text-[12px] text-critical-ink shadow-xl" data-testid="port-rejected">
+          {rejected}
         </div>
       )}
     </div>

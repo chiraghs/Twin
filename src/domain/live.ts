@@ -102,3 +102,11 @@ export function activeAlarms(state: FactoryState): LiveAlarm[] {
   const rank = { critical: 0, warning: 1 };
   return out.sort((x, y) => rank[x.severity] - rank[y.severity] || x.sinceHour - y.sinceHour);
 }
+
+/** What the twin knows for certain, so the answer about the picture stays grounded in real state. */
+export function viewContext(s: FactoryState): string {
+  const lines = s.lines.map((l) => `- ${l.id} ${l.name}: ${l.state}, pace ${Math.round(lineFlow(s, l.id) * 100)}% of nominal; machines ${l.assetIds.join(", ")}`);
+  const machines = s.assets.map((a) => `- ${a.id} ${a.name} (${a.kind}, ${a.lineId}): ${a.status}, health ${a.healthScore.toFixed(0)}, vibration ${a.signal.vibration.toFixed(1)} mm/s, ${a.signal.temperature.toFixed(0)} °C`);
+  const alarms = activeAlarms(s).map((x) => `- ${x.severity} ${x.assetId}: ${x.title}`);
+  return [`Plant: ${s.profile.name}`, "Lines:", ...lines, "Machines:", ...machines, alarms.length ? "Active alarms:" : "No active alarms.", ...alarms].join("\n");
+}

@@ -2,6 +2,7 @@
  * Edit operations on a TwinSpec. The agent's chat refinements and the review screen's manual edits
  * both go through these, so every change is explicit, validated and attributable.
  */
+import { canFollow } from "../ports";
 import { z } from "zod";
 import { ASSET_KINDS } from "../archetypes";
 import type { AssetKind } from "../types";
@@ -419,12 +420,14 @@ export function applyOps(input: TwinSpec, ops: SpecOp[], prov: Prov): ApplyResul
         break;
       }
       case "connect": {
+        let portCheck: ReturnType<typeof canFollow> = { ok: true, material: "part" };
         const from = findMachine(o.machineId);
         const to = findMachine(o.targetId);
         if (!from || !to) fail("both machines must exist");
         else if (from.machine.id === to.machine.id) fail("a machine can't feed itself");
         else if (from.line.id !== to.line.id && from.line.machines.length >= 8) fail(`${from.line.name} already has 8 machines`);
         else if (to.line.machines.length === 1 && spec.lines.length === 1) fail("a twin needs at least one line");
+        else if (!(portCheck = canFollow(from.line.machines.map((m) => m.archetype as AssetKind), from.index, to.machine.archetype as AssetKind)).ok) fail(`${to.machine.name} can't follow ${from.machine.name}: ${portCheck.reason}`);
         else {
           // The target moves to directly after the source, in the source's line.
           to.line.machines.splice(to.index, 1);

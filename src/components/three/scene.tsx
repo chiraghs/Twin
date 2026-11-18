@@ -1,8 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
+import { useJog } from "@/client/jog";
+import { useView3d } from "@/client/view3d";
+import { Component, Suspense, useEffect, useMemo, useRef, type ReactNode } from "react";
 import { useFrame, type ThreeEvent } from "@react-three/fiber";
-import { Line, RoundedBox } from "@react-three/drei";
+import { Line, RoundedBox, useGLTF } from "@react-three/drei";
 import * as THREE from "three";
 import type { AssetKind, AssetStatus } from "@/domain/types";
 import { machineParts, type Part, type Tone } from "../iso/geometry";
@@ -173,7 +175,15 @@ export function BayZone({ bay, mats, accent, color, hot, dim }: { bay: Bay; mats
  * An industrial robot arm with forward kinematics: links between the joints of the machine's pose,
  * animated through a pick-and-place motion while the machine runs, with a two-finger gripper.
  */
-function RobotArm({ points, mats, quality, dim, moving, phase, rate = 1 }: { points: [number, number, number][]; mats: Materials; quality: Quality; dim: boolean; moving: boolean; phase: number; rate?: number }) {
+const DEG = Math.PI / 180;
+/** Ease a manual pose toward the jogged values (a drive moving to position, not a jump). */
+function ease(cur: Record<string, number>, goal: Record<string, number>, dt: number) {
+  const k = 1 - Math.exp(-dt * 8);
+  for (const key of Object.keys(goal)) cur[key] = (cur[key] ?? goal[key]) + (goal[key] - (cur[key] ?? goal[key])) * k;
+  return cur;
+}
+
+function RobotArm({ points, mats, quality, dim, moving, phase, rate = 1, axes = null }: { points: [number, number, number][]; mats: Materials; quality: Quality; dim: boolean; moving: boolean; phase: number; rate?: number; axes?: Record<string, number> | null }) {
   const rig = useMemo(() => {
     const [bu, bv, bz] = points[0];
     const end = points[points.length - 1];
@@ -198,16 +208,19 @@ function RobotArm({ points, mats, quality, dim, moving, phase, rate = 1 }: { poi
   const wave = [0.12, -0.22, 0.3];
   // Motion phase advances with the commanded speed and holds its pose when the machine stops.
   const clockT = useRef(phase);
+  const pose = useRef<Record<string, number>>({});
   useFrame((_, dt) => {
-    if (moving) clockT.current += Math.min(dt, 0.1) * 1.1 * rate;
+    // Manual mode: joints follow the jogged axes (J1 base, J2–J4 links, gripper).
+    const man = axes ? ease(pose.current, axes, Math.min(dt, 0.1)) : null;
+    if (moving && !man) clockT.current += Math.min(dt, 0.1) * 1.1 * rate;
     const t = clockT.current;
     const k = 1;
-    if (yaw.current) yaw.current.rotation.y = -rig.heading + k * Math.sin(t * 0.8) * 0.65;
+    if (yaw.current) yaw.current.rotation.y = -rig.heading + (man ? (man.J1 ?? 0) * DEG : k * Math.sin(t * 0.8) * 0.65);
     let x = 0;
     let y = 0;
     let a = 0;
     for (let i = 0; i < rig.lens.length; i++) {
-      a += rig.rel[i] + k * (wave[i] ?? 0.2) * Math.sin(t + i * 0.7);
+      a += rig.rel[i] + (man ? (man[`J${i + 2}`] ?? 0) * DEG : k * (wave[i] ?? 0.2) * Math.sin(t + i * 0.7));
       const nx = x + rig.lens[i] * Math.cos(a);
       const ny = y + rig.lens[i] * Math.sin(a);
       const link = links.current[i];
@@ -224,7 +237,7 @@ function RobotArm({ points, mats, quality, dim, moving, phase, rate = 1 }: { poi
       tool.current.position.set(x, y, 0);
       tool.current.rotation.set(0, 0, a - Math.PI / 2);
     }
-    const open = 0.035 + (moving ? 0.03 * (Math.sin(t * 2) + 1) : 0.03);
+    const open = man ? 0.035 + 0.06 * ((man.GRIP ?? 50) / 100) : 0.035 + (moving ? 0.03 * (Math.sin(t * 2) + 1) : 0.03);
     fingers.current.forEach((f, i) => f && (f.position.z = (i ? 1 : -1) * open));
   });
   const linkMat = mats.get("robot", dim);
@@ -388,14 +401,23 @@ const MOTION: Partial<Record<AssetKind, "stroke" | "spin" | "shuttle">> = {
  * The machine's working motion on top of its body, paced by the commanded speed. It holds its
  * position when the machine is stopped (tripped, in maintenance or offline).
  */
-function MotionHead({ kind, height, L, W, moving, rate, phase, mats, dim }: { kind: AssetKind; height: number; L: number; W: number; moving: boolean; rate: number; phase: number; mats: Materials; dim: boolean }) {
+function MotionHead({ kind, height, L, W, moving, rate, phase, mats, dim, axes = null }: { kind: AssetKind; height: number; L: number; W: number; moving: boolean; rate: number; phase: number; mats: Materials; dim: boolean; axes?: Record<string, number> | null }) {
   const mode = MOTION[kind];
   const part = useRef<THREE.Group>(null);
   const t = useRef(phase);
+  const pose = useRef<Record<string, number>>({});
   useFrame((_, dt) => {
-    if (moving) t.current += Math.min(dt, 0.1) * rate;
     const g = part.current;
     if (!g) return;
+    if (axes) {
+      // Manual mode: Z ram in mm (0 = top), spindle angle in degrees, X carriage in mm (±100 = full travel).
+      const m = ease(pose.current, axes, Math.min(dt, 0.1));
+      if (mode === "stroke") g.position.y = height + 0.16 - 0.12 * ((m.Z ?? 0) / 120);
+      else if (mode === "spin") g.rotation.y = (m.C ?? 0) * DEG;
+      else if (mode === "shuttle") g.position.x = ((m.X ?? 0) / 100) * (L * 0.28);
+      return;
+    }
+    if (moving) t.current += Math.min(dt, 0.1) * rate;
     if (mode === "stroke") g.position.y = height + 0.16 - 0.12 * (0.5 + 0.5 * Math.sin(t.current * 3.2));
     else if (mode === "spin") g.rotation.y = t.current * 6;
     else if (mode === "shuttle") g.position.x = Math.sin(t.current * 2.4) * (L * 0.28);
@@ -434,6 +456,36 @@ function MotionHead({ kind, height, L, W, moving, rate, phase, mats, dim }: { ki
   );
 }
 
+/** If an uploaded model can't be loaded, keep showing the built-in shape. */
+class ModelBoundary extends Component<{ fallback: ReactNode; children: ReactNode }, { failed: boolean }> {
+  state = { failed: false };
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+  render() {
+    return this.state.failed ? this.props.fallback : this.props.children;
+  }
+}
+
+/** A user's glTF model, scaled to fit the machine's footprint and height and set on the floor. */
+function UserModel({ url, L, W, H }: { url: string; L: number; W: number; H: number }) {
+  const { scene } = useGLTF(url);
+  const fitted = useMemo(() => {
+    const root = scene.clone(true);
+    const box = new THREE.Box3().setFromObject(root);
+    const size = box.getSize(new THREE.Vector3());
+    const k = Math.min(L / Math.max(size.x, 1e-6), W / Math.max(size.z, 1e-6), (H * 1.4) / Math.max(size.y, 1e-6));
+    root.scale.setScalar(k);
+    const c = box.getCenter(new THREE.Vector3());
+    root.position.set(-c.x * k, -box.min.y * k, -c.z * k);
+    root.traverse((o) => {
+      if ((o as THREE.Mesh).isMesh) o.castShadow = o.receiveShadow = true;
+    });
+    return root;
+  }, [scene, L, W, H]);
+  return <primitive object={fitted} />;
+}
+
 export function Machine3D({
   pm,
   pal,
@@ -466,6 +518,8 @@ export function Machine3D({
   const rate = (pm.m.speedPct ?? 100) / 100;
   const moving = running && (pm.m.speedPct === undefined || pm.m.throughput > 0);
   const isRobot = pm.m.kind === "robot";
+  const axes = useJog((s) => s.manual[pm.m.id] ?? null);
+  const modelVer = useView3d((s) => s.models[pm.m.kind]);
   const materialFor = (tone: Tone): THREE.Material => {
     if (tone === "accent") return mats.paint(line, dim);
     if (isRobot && tone === "body") return mats.get("robot", dim);
@@ -482,14 +536,30 @@ export function Machine3D({
           </mesh>
         )}
         {(selected || target || reroute) && <Pulse w={f.L + (selected ? 0.8 : 1.2)} d={f.W + (selected ? 0.8 : 1.2)} color={pal.accent} dashed={reroute && !target && !selected} />}
-        {parts.map((p: Part, i) =>
-          p.t === "box" ? (
-            <Solid key={i} size={[p.L, Math.max(0.01, p.H), p.W]} position={[p.u, p.z0 + p.H / 2, p.v]} material={materialFor(p.tone)} quality={quality} />
-          ) : p.t === "arm" ? (
-            <RobotArm key={i} points={p.points} mats={mats} quality={quality} dim={dim} moving={moving && !dim} phase={phase} rate={rate} />
-          ) : null,
-        )}
-        {!isRobot && <MotionHead kind={pm.m.kind} height={height} L={f.L} W={f.W} moving={moving && !dim} rate={rate} phase={phase} mats={mats} dim={dim} />}
+        {(() => {
+          const builtIn = (
+            <>
+              {parts.map((p: Part, i) =>
+                p.t === "box" ? (
+                  <Solid key={i} size={[p.L, Math.max(0.01, p.H), p.W]} position={[p.u, p.z0 + p.H / 2, p.v]} material={materialFor(p.tone)} quality={quality} />
+                ) : p.t === "arm" ? (
+                  <RobotArm key={i} points={p.points} mats={mats} quality={quality} dim={dim} moving={moving && !dim} phase={phase} rate={rate} axes={axes} />
+                ) : null,
+              )}
+              {!isRobot && <MotionHead kind={pm.m.kind} height={height} L={f.L} W={f.W} moving={moving && !dim} rate={rate} phase={phase} mats={mats} dim={dim} axes={axes} />}
+            </>
+          );
+          // An uploaded model for this machine type replaces the built-in shape (which shows while it loads, or if it fails).
+          return modelVer ? (
+            <ModelBoundary fallback={builtIn}>
+              <Suspense fallback={builtIn}>
+                <UserModel url={`/api/models/${pm.m.kind}?v=${encodeURIComponent(modelVer)}`} L={f.L} W={f.W} H={height} />
+              </Suspense>
+            </ModelBoundary>
+          ) : (
+            builtIn
+          );
+        })()}
         {HMI_KINDS.has(pm.m.kind) && <Hmi u={-f.L / 2 + 0.18} v={f.W / 2 + 0.22} mats={mats} dim={dim} />}
         {isRobot && <Fence L={f.L} W={f.W} mats={mats} dim={dim} />}
         <StackLight position={[-f.L / 2 + 0.16, -f.W / 2 + 0.16]} height={height} status={status} mats={mats} />

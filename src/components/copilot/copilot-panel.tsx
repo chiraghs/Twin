@@ -2,6 +2,8 @@
 
 import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
+import { useView3d } from "@/client/view3d";
 import { AlertTriangle, Bot, Check, CheckCircle2, ChevronDown, Info, Loader2, RotateCcw, Send, ShieldCheck, Sparkles, Wrench, X } from "lucide-react";
 import { useCopilot, type CopilotTurn } from "@/client/copilot";
 import { cn } from "@/lib/cn";
@@ -148,6 +150,13 @@ export function CopilotPanel() {
   const reset = useCopilot((s) => s.reset);
   const [text, setText] = useState("");
   const end = useRef<HTMLDivElement>(null);
+  // When the copilot shows something in 3D, bring the user to the 3D twin if they're elsewhere.
+  const request = useView3d((s) => s.request);
+  const pathname = usePathname();
+  const router = useRouter();
+  useEffect(() => {
+    if (request?.source === "copilot" && pathname !== "/twin") router.push("/twin");
+  }, [request, pathname, router]);
 
   useEffect(() => {
     if (open && !info) void loadInfo();

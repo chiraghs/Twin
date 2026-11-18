@@ -139,7 +139,7 @@ describe("Copilot runtime on Muse Spark", () => {
     expect(types.at(-1)).toBe("done");
     // coordinator sees its own tools plus the three specialists as function tools
     const tools = (calls[0].body.tools as { name: string }[]).map((t) => t.name);
-    expect(tools).toEqual(["get_plant_overview", "search_audit", "propose_plan", "maintenance_analyst", "quality_analyst", "planning_analyst"]);
+    expect(tools).toEqual(["get_plant_overview", "search_audit", "propose_plan", "get_kpis", "list_alarms", "list_recommendations", "get_recommendation", "show_in_3d", "maintenance_analyst", "quality_analyst", "planning_analyst"]);
     expect(calls[1].body.instructions).toMatch(/maintenance analyst/);
     // the tool result is sent back as a function_call_output paired with its call id
     const input = calls[2].body.input as { type?: string; call_id?: string }[];

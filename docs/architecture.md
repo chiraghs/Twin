@@ -332,6 +332,35 @@ signals and sends the existing audited commands (speed setpoint, fault injection
 `src/domain/aas.ts` exports Asset Administration Shells (metamodel v3 JSON). The 3D view exports the plant as glTF with
 `extras.twin` metadata and offers WebXR sessions through `@react-three/xr`.
 
+### 7.8 Commissioning and simulation
+
+All of these are deterministic domain modules with their own tests; the UI only renders them.
+
+- **Field connectors** (`backend/connectors/opcua`, `backend/connectors/modbus`, `backend/core/api/field_router.py`). Read-only
+  OPC UA (asyncua) browse and read, Modbus TCP (pymodbus) register reads, and a simulated PLC that publishes the twin's machines
+  on both protocols (OPC UA `PLC1.<asset>.<Signal>`; Modbus holding registers from machine index × 10). Links from a field tag
+  to a twin signal live in SQLite (`signal_links`, one per signal) and are read back through `/api/v1/field/links/read`,
+  grouped so each server is contacted once per poll (`src/domain/signal-links.ts`, `src/components/commissioning/field-signals.tsx`).
+- **Axes** (`src/domain/axes.ts`, `src/client/jog.ts`). Axis definitions per machine type with limits and endless rotary axes.
+  In manual mode, `Machine3D` eases its robot joints and motion head to the jogged values instead of the automatic cycle.
+- **Per-unit transport** (`src/domain/transport.ts`). A discrete flow model per line: weighted round-robin product mix at the
+  source, accumulation at a fixed pitch, one unit per machine for its cycle time (nameplate × speed setpoint), photo-eyes that
+  count and report blockage, a sink per product, and working / blocked / starved / down accounting per machine.
+- **Sequencer** (`src/domain/sequences.ts`). Steps (command, wait for a signal with timeout, delay, parallel branches) validated
+  against the twin; `runSequence` takes its clock, sleep and command executor as dependencies, so the same runner drives the
+  browser (audited `/api/faults` and asset updates) and the tests.
+- **Fleet traffic** (`src/domain/agv-traffic.ts`). Zone control on a 1-unit grid: two-way aisles (one lane per heading),
+  crossing traffic blocks a zone, dwell at both docks, pacing to the required trips per hour, and wait-for-cycle detection
+  that lets the lowest id through (counted as a broken deadlock).
+- **Typed ports** (`src/domain/ports.ts`). Materials per machine type; `checkLine` infers the source material and reports
+  mismatches; `canFollow` gates the shared `connect` operation, so the floor editor and the AI assistant obey the same rule.
+- **Experiments** (`src/domain/experiments.ts`). Seeded replications with common random numbers across plans and Student-t
+  95 % intervals. **Snapshots**, **saved views**, **sequences** and **machine models** are per-facility SQLite tables
+  deleted with the facility.
+- **AI and the 3D view.** `show_in_3d` is a tool with effect `ui`: it validates the target and changes nothing; the copilot
+  client turns its result into a request on `src/client/view3d.ts`, which the 3D view obeys (also used by saved views and the
+  camera wall). `/api/twin-view/ask` sends a rendered frame with the twin's state (`viewContext`) to Muse Spark.
+
 ## 8. Twin views, 3D and mobile robots
 
 - **Four views of one state:** Topology (React Flow), Isometric (SVG), Floor plan and **3D** (three.js through React Three Fiber, loaded only when the tab opens). The isometric and 3D views share one layout (`layoutIso`) and one machine-part library (`machineParts`), so they always agree; the 3D view adds orbit, pan, zoom, top view, focus and a turntable, with animated robot arms, belts and robots. Labels are DOM elements positioned by a per-frame projector (one React tree). Without WebGL the tab says so and points to the other views.
@@ -375,7 +404,7 @@ Upload, then `POST /api/builder/draft` (NDJSON: read, research, draft, validate)
 
 ---
 
-## 11. API surface (46 route handlers)
+## 11. API surface (76 route handlers)
 
 | Area | Endpoints |
 |---|---|
@@ -455,8 +484,8 @@ The copilot runtime (`src/server/copilot/agent.ts`) drives the coordinator, spec
 
 | Suite | Count | Covers |
 |---|---|---|
-| Vitest (`tests/`) | 117 | Seed reproducibility; physics, KPIs and trend estimation; scenario outcomes, sensitivity and ranking; agent pipeline; approvals, rejection and rollback; LLM grounding and fallback; quality and cameras; Twin Builder templates, validation, compile and agent workflow with recorded responses; the tool layer (read-only guarantee, proposal semantics, argument validation); numeric grounding; admin sessions (signing, expiry, rate limit); settings overrides, validation and secret handling; camera sources and the footage library; stock-outs reported once; Playground edits and the four rule kinds in the plant model |
-| Playwright (`e2e/`) | 16 | The Playground from palette drag to applied twin; every page renders with no console errors; guided crisis demo; reset; API validation; iso view and theme; landing story; cameras and Visual Quality; Twin Builder end to end; MCP protocol; Muse Spark copilot with a grounded answer (runs when Muse Spark is configured); CCTV control room switching to reference footage and back; integration settings from the UI, including the AI provider picker; the 3D view with mobile robots; Twin Builder robots end to end; the phone notice |
+| Vitest (`tests/`) | 174 | Seed reproducibility; physics, KPIs and trend estimation; scenario outcomes, sensitivity and ranking; agent pipeline; approvals, rejection and rollback; LLM grounding and fallback; quality and cameras; Twin Builder templates, validation, compile and agent workflow with recorded responses; the tool layer (read-only guarantee, proposal semantics, argument validation); numeric grounding; admin sessions (signing, expiry, rate limit); settings overrides, validation and secret handling; camera sources and the footage library; stock-outs reported once; Playground edits and the four rule kinds in the plant model |
+| Playwright (`e2e/`) | 22 | The Playground from palette drag to applied twin; every page renders with no console errors; guided crisis demo; reset; API validation; iso view and theme; landing story; cameras and Visual Quality; Twin Builder end to end; MCP protocol; Muse Spark copilot with a grounded answer (runs when Muse Spark is configured); CCTV control room switching to reference footage and back; integration settings from the UI, including the AI provider picker; the 3D view with mobile robots; Twin Builder robots end to end; the phone notice |
 | pytest (`services/vision`) | 16 | Golden comparison (missing part, rotated part, lighting), codes, quality, video stoppage, determinism, API limits |
 
 The e2e suite runs against local production builds and against the live URL (`E2E_BASE_URL`). With AI on, the Twin Builder and copilot tests exercise real Muse models.

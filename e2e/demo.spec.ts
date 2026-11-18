@@ -250,7 +250,7 @@ test("MCP server: initialize, list tools with read-only hints, call a tool", asy
   const init = await request.post("/api/mcp", { headers, data: { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "e2e", version: "1" } } } });
   expect((await init.json()).result.serverInfo.name).toBe("twin");
   const list = (await (await request.post("/api/mcp", { headers, data: { jsonrpc: "2.0", id: 2, method: "tools/list", params: {} } })).json()) as { result: { tools: { name: string; annotations?: { readOnlyHint?: boolean } }[] } };
-  expect(list.result.tools).toHaveLength(12);
+  expect(list.result.tools).toHaveLength(32);
   expect(list.result.tools.filter((t) => !t.annotations?.readOnlyHint).map((t) => t.name)).toEqual(["propose_plan"]);
   const call = (await (await request.post("/api/mcp", { headers, data: { jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "diagnose_asset", arguments: { assetId: "A-ROB-03" } } } })).json()) as { result: { content: { text: string }[] } };
   expect(JSON.parse(call.result.content[0].text).asset.id).toBe("A-ROB-03");
@@ -434,4 +434,43 @@ test("operate: live 3D data and alarms, commissioning commands, guided maintenan
   // AAS export.
   const aas = (await (await request.get("/api/aas")).json()) as { assetAdministrationShells: unknown[]; submodels: unknown[] };
   expect(aas.submodels.length).toBe(aas.assetAdministrationShells.length * 3);
+});
+
+test("commission & simulate: snapshots, saved views, sequencer, transport flow, typed ports, fleet traffic, tools", async ({ page, request }) => {
+  const session = (await (await request.get("/api/admin/session")).json()) as { admin: boolean };
+  // Snapshot round trip (restore needs admin).
+  const snap = await request.post("/api/snapshots", { data: { name: "e2e before", by: "QA" } });
+  expect(snap.status()).toBe(201);
+  const { snapshot } = (await snap.json()) as { snapshot: { id: string } };
+  if (session.admin) {
+    expect((await request.post(`/api/snapshots/${snapshot.id}`, { data: { by: "QA" } })).status()).toBe(200);
+    expect((await request.delete(`/api/snapshots/${snapshot.id}`)).status()).toBe(200);
+  }
+  // Saved view / virtual camera, validated server-side.
+  expect((await request.post("/api/views", { data: { name: "bad", position: [0, 0, 0], target: [0, 0, 0] } })).status()).toBe(400);
+  const view = await request.post("/api/views", { data: { name: "e2e cam", kind: "camera", position: [6, 5, 8], target: [0, 0.5, 0] } });
+  expect(view.status()).toBe(201);
+  await request.delete(`/api/views/${((await view.json()) as { view: { id: string } }).view.id}`);
+  // Sequences are validated against the twin.
+  expect((await request.post("/api/sequences", { data: { name: "bad", steps: [{ id: "w", kind: "wait", signalId: "NOPE.Running", op: "=", value: true, timeoutS: 5 }] } })).status()).toBe(400);
+  // MCP: the operate tools are listed.
+  const mcp = await request.post("/api/mcp", { headers: { accept: "application/json, text/event-stream" }, data: { jsonrpc: "2.0", id: 1, method: "tools/list" } });
+  const tools = ((await mcp.json()) as { result: { tools: { name: string }[] } }).result.tools.map((t) => t.name);
+  expect(tools).toEqual(expect.arrayContaining(["show_in_3d", "run_experiment", "get_live_signals", "list_alarms"]));
+
+  // Commissioning: per-unit transport flow runs.
+  await page.goto("/commissioning", { waitUntil: "domcontentloaded" });
+  await expect(page.getByTestId("transport-strip")).toBeVisible();
+  await expect(page.getByTestId("transport-stats")).toContainText("Released");
+  // Sequencer page with a line start-up template.
+  await page.goto("/sequencer", { waitUntil: "domcontentloaded" });
+  await page.getByRole("button", { name: /start-up template/ }).first().click();
+  await expect(page.getByTestId("sequence-steps")).toContainText("Wait until");
+  // Playground catalogue search.
+  await page.goto("/playground", { waitUntil: "domcontentloaded" });
+  await page.getByLabel("Search machine types").fill("bulk");
+  await expect(page.getByTestId("palette-machines")).toContainText("Mixer");
+  // Fleet traffic.
+  await page.goto("/fleet-traffic", { waitUntil: "domcontentloaded" });
+  await expect(page.getByTestId("traffic-kpis")).toContainText("Deadlocks broken");
 });

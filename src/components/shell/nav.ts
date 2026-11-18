@@ -21,6 +21,8 @@ import {
   SlidersHorizontal,
   LockKeyhole,
   Cable,
+  ListOrdered,
+  Route,
   HardHat,
 } from "lucide-react";
 
@@ -35,6 +37,8 @@ export const NAV = [
       { href: "/playground", label: "Playground", icon: Shapes },
       { href: "/commissioning", label: "Signals & Commissioning", icon: Cable },
       { href: "/guided-maintenance", label: "Guided Maintenance", icon: HardHat },
+      { href: "/sequencer", label: "Sequencer", icon: ListOrdered },
+      { href: "/fleet-traffic", label: "Fleet Traffic", icon: Route },
       { href: "/onboarding", label: "Twin Builder", icon: Wand2 },
     ],
   },

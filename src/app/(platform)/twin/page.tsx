@@ -166,7 +166,7 @@ function TwinStudio() {
         ) : view === "iso" ? (
           <IsoViewport state={state} highlight={highlight} selectedId={selectedId} onSelect={(id) => selectAsset(id)} orderRisk={orderRisk} />
         ) : view === "3d" ? (
-          <Twin3D state={state} highlight={highlight} selectedId={selectedId} onSelect={(id) => selectAsset(id)} orderRisk={orderRisk} />
+          <Twin3D state={state} highlight={highlight} selectedId={selectedId} onSelect={(id) => selectAsset(id)} orderRisk={orderRisk} views />
         ) : (
           <FloorView state={state} highlight={highlight} selectedId={selectedId} onSelect={(id) => selectAsset(id)} />
         )}

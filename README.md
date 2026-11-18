@@ -45,17 +45,19 @@ Twin builds on our earlier digital-twin engine: the deterministic plant model, s
 5. [How the numbers are produced](#how-the-numbers-are-produced)
 6. [AI agents](#ai-agents)
 7. [Visual quality and cameras](#visual-quality-and-cameras)
-8. [Twin Builder](#twin-builder)
-9. [Playground](#playground)
-10. [Copilot and MCP](#copilot-and-mcp)
-11. [API reference](#api-reference)
-12. [Integrations (Meta Model API and open-source adapters)](#integrations)
-13. [Manufacturing intelligence backend & feature domains](#manufacturing-intelligence-backend--feature-domains)
-14. [Deploy (Docker Compose)](#deploy-with-docker-compose)
-15. [Scaling to market standards](#scaling-to-market-standards)
-16. [Testing](#testing)
-17. [Project structure](#project-structure)
-18. [Known limitations](#known-limitations)
+8. [Operate the twin live](#operate-the-twin-live)
+9. [Commission and simulate](#commission-and-simulate)
+10. [Twin Builder](#twin-builder)
+11. [Playground](#playground)
+12. [Copilot and MCP](#copilot-and-mcp)
+13. [API reference](#api-reference)
+14. [Integrations (Meta Model API and open-source adapters)](#integrations)
+15. [Manufacturing intelligence backend & feature domains](#manufacturing-intelligence-backend--feature-domains)
+16. [Deploy (Docker Compose)](#deploy-with-docker-compose)
+17. [Scaling to market standards](#scaling-to-market-standards)
+18. [Testing](#testing)
+19. [Project structure](#project-structure)
+20. [Known limitations](#known-limitations)
 
 The full architecture and design document is [docs/architecture.md](docs/architecture.md).
 
@@ -138,8 +140,8 @@ The fastest path is **Demo controls → Run Factory Crisis Demo** (top-right). I
 | Landing page: Apple-style scroll story — the isometric twin stays pinned while the scripted crisis unfolds (build → detect → investigate → simulate → approve → audit); every figure is computed by running the engine on that scenario | ✅ |
 | Light / dark theme toggle (persisted, no flash on load) across the app and landing page | ✅ |
 | **Twin Builder**: Muse Spark reads a blueprint (labels, lines, flow) while **SAM 3.1** segments each machine's footprint; Muse Spark researches standard layouts (Responses web search, cited) and drafts a twin spec. **Muse Voice Transcribe** turns spoken requirements into text; **Muse Image** can draw a floor plan from a description. The user reviews it with provenance on every element, edits directly or by chat, plans data connections and builds. Deterministic validation and compile; template mode without AI | ✅ Meta Model API |
-| **Twin Copilot on Muse Spark**: coordinator + maintenance, quality and planning specialists (specialists exposed to the coordinator as tools) over 12 deterministic tools; a live tool trace; every figure checked against tool results; `propose_plan` behind a human confirmation gate (creates a pending recommendation only); conversation memory | ✅ Meta Model API |
-| **MCP server** (`/api/mcp`, Streamable HTTP): the same 12 tools with read-only hints for any agent; a **Python Muse Spark agent** (`services/agents`) that operates the twin over MCP | ✅ |
+| **Twin Copilot on Muse Spark**: coordinator + maintenance, quality and planning specialists (specialists exposed to the coordinator as tools) over 32 deterministic tools; a live tool trace; every figure checked against tool results; `propose_plan` behind a human confirmation gate (creates a pending recommendation only); conversation memory | ✅ Meta Model API |
+| **MCP server** (`/api/mcp`, Streamable HTTP): the same 32 tools with read-only hints for any agent; a **Python Muse Spark agent** (`services/agents`) that operates the twin over MCP | ✅ |
 | 16 machine archetypes across industries (CNC, mixer, oven, filler, molding, welding, palletizer, pump, manual station, extruder + the original 6), each with physics, sensors, failure mode, defect classes and a 3D shape; 7 industry templates | ✅ |
 | Factory Command Center: OEE, target vs. actual, health distribution, energy, scrap, incidents, shortages, delivery risk, line status, events | ✅ |
 | Digital Twin Studio: React Flow topology (lines, machines, sensors, inventory and order nodes; add, edit and connect assets; drag; zoom, pan and fit), an **isometric view** (extruded machines with status stack-lights, animated belts, warehouse racks and order trucks; rotate, zoom, pan, select), a 2D floor plan, and a **3D view** (three.js: orbit, pan, zoom, top view, focus, turntable) with a realistic look: concrete floor, cutaway walls and steel columns, painted work zones with safety tape, rounded machine enclosures with HMI panels, jointed robot arms with grippers inside safety fencing, conveyors with frames and rollers, pallet racking, and animated mobile robots. High quality adds ambient occlusion and bloom; Standard is chosen automatically on slow or GPU-less devices. All with scenario highlighting | ✅ |
@@ -162,6 +164,7 @@ The fastest path is **Demo controls → Run Factory Crisis Demo** (top-right). I
 | **SQLite system of record** shared by both services: normalised twin tables with change-only writes, settings and configuration history, per-browser preferences and drafts, copilot conversations, AI call log, run history ([data model](docs/data-model.md)) | ✅ |
 | **Intelligence Backend page** (via `/api/backend` proxy): fleet risk, maintenance copilot in 7 languages, recommendation approval, AOI inspection with defect boxes and dispositions, supply-chain what-if and assistant, mitigation approval, S&OP brief, shift handover, alarm triage, editable feature configs with history, live data model | ✅ needs the backend running |
 | **Operate the twin live:** products flowing on conveyors at each line's real pace and queuing when a line stops, machine motion following the speed setpoint, live data tags and end-of-line counters in 3D, an alarm list, **Signals & Commissioning** (every machine's signals with limits; audited speed, trip, degrade and restore commands), **Guided Maintenance** (work orders as signed step-by-step procedures with a live test-run check), snap-to-line in the Playground, **VR/AR** (WebXR), **.glb export** of the plant with Twin metadata, and **AAS export** (Asset Administration Shell v3) | ✅ |
+| **Commission and simulate:** OPC UA and Modbus TCP field connectors with a simulated PLC and drag-and-drop signal linking, axes with manual jog, per-unit product flow with sensors and sinks, snapshots, a sequencer with parallel steps and signal waits, zone-controlled fleet traffic, typed material ports and a searchable catalogue, experiments under uncertainty, saved views and virtual cameras, pinned HMI panels, your own .glb models per machine type, AI questions about the 3D view, and a copilot that drives the 3D view | ✅ field connectors need the backend running |
 | **Four intelligence features on your own plant** (predictive maintenance, supply chain, demand forecasting, AOI vision): off by default, turned on and configured in **Admin → Features**; the plant is synced to the backend every 15 s, results reach the agents as sourced evidence, one-click proposals go to Approvals (preventive maintenance → work order, purchase order → inbound delivery), and each has an **Analytics** page | ✅ needs the backend running |
 | **DuckDB analytics** over the shared SQLite database: monthly demand, sensor health, supplier exposure, Meta Model API usage (Intelligence Backend → Analytics) | ✅ |
 | Open-source adapters with real connectivity tests: **MQTT** telemetry ingestion (Mosquitto, EMQX) and **S3-compatible** document storage (MinIO, SeaweedFS, any S3) | ✅ implemented; need configuration |
@@ -306,6 +309,24 @@ Switching needs the admin passcode (see [Admin access](#admin-access)); every sw
 | .glb export | 3D → download | The plant as a binary glTF; every machine and conveyor carries `extras.twin` (asset id, kind, line, status, health, speed) |
 | AAS export | Assets → **Export AAS** (`GET /api/aas`) | Each machine as an Asset Administration Shell (metamodel v3 JSON) with Nameplate, TechnicalData and OperationalData submodels, for AAS tools such as Eclipse BaSyx |
 
+## Commission and simulate
+
+| Feature | Where | What it does |
+|---|---|---|
+| Field signals (OPC UA, Modbus TCP) | Signals & Commissioning → **Field signals** | Browse a PLC over OPC UA or read Modbus registers (Python backend, `asyncua` and `pymodbus`), then drag a tag onto a twin signal to link it. Linked signals show the field value next to the twin value with an agree / differs badge. Read-only towards the PLC. **Start simulated PLC** publishes the twin's machines on both protocols for testing without hardware |
+| Axes and jog | Signals & Commissioning → **Axes · manual jog** | Each machine type's axes (robot J1–J4 and gripper, press Z ram, spindle angle, carriage X) with limits. In manual mode, jog or drag each axis; the machine moves in the close-up and in the plant 3D view. Twin only |
+| Per-unit product flow | Signals & Commissioning → **Product flow** | Individual units in the line's product mix: source, belts, machines holding each unit for its cycle time, photo-eyes counting and reporting blockage, and a sink counting per product. Shows working / blocked / starved / down per machine, rate, lead time and the bottleneck; follows live speed changes and trips |
+| Snapshots | Signals & Commissioning → **Snapshots** | Save the whole twin under a name before a test and restore it exactly afterwards (admin, audited) |
+| Sequencer | Operate → **Sequencer** | Build start-up, shutdown and test sequences: commands (start, stop, set speed), waits on any twin signal with a timeout, delays, and parallel branches. Runs on the twin with live step status; a line start-up template is generated for each line |
+| Fleet traffic | Operate → **Fleet Traffic** | The mobile robots on the aisle network with zone control: two-way aisles, crossing traffic and docks, deadlock detection. Shows congestion hot spots and whether each robot keeps up with the trips its line needs |
+| Typed ports and catalogue | Playground | Each machine type takes and delivers a material (parts, assemblies, packed goods, pallets, bulk). Links that don't fit are refused with the reason, in the floor editor and for the AI assistant. The palette is searchable by name, use and material |
+| Experiments | What-If Simulator → **Experiment** | Every plan replicated 10–40 times with repair times, maintenance windows, supplier fill rates and order sizes varied (same draws for every plan): mean score with 95 % intervals and the odds of late orders, asset failure and being the best plan |
+| Saved views and virtual cameras | 3D → **Views** | Save the current viewpoint and fly back to it; tick *Virtual camera* to show that viewpoint live on the CCTV Control Room wall |
+| Pinned HMI panels | 3D → pin button | Pin a machine's live signals above it in 3D; panels stay while you move around |
+| Your own 3D models | Assets → **3D models per machine type** | Upload a .glb for a machine type; every machine of that type in 3D uses it, scaled to its footprint (admin) |
+| Ask AI about this view | 3D → **Ask AI about this view** | Sends the current 3D frame and the twin's actual state to Muse Spark and answers your question; numbers come from the state, not the picture |
+| AI drives the 3D view | Copilot | Ask the copilot to show a machine, robot or camera: its `show_in_3d` tool opens the 3D twin and flies there |
+
 ## Twin Builder
 
 Open **Twin Builder** (sidebar, or **Create your twin** on the landing page). Give it any of:
@@ -358,7 +379,7 @@ Every rule action is written to the audit trail as *Automation rule*.
 
 **Copilot.** Click **Ask Copilot** in the top bar. It's a native multi-agent runtime on Meta's Muse Spark (Responses API function calling), running inside the app:
 - **Agents.** A coordinator delegates to three specialist agents: maintenance, quality and planning.
-- **Tools.** 12 deterministic Twin tools: plant overview, assets, diagnosis, incidents, orders, inventory, what-if simulation, quality, camera views, audit search, the latest analysis, and plan proposals.
+- **Tools.** 32 deterministic Twin tools: plant overview, assets, diagnosis, incidents, orders, inventory, what-if simulation, quality, camera views, audit search, the latest analysis and plan proposals, plus live signals, alarms, telemetry, anomaly scan, KPIs and trends, work orders, guided procedures, maintenance history, experiments, recommendations, order detail, products, lines and flow, cameras, the robot fleet, asset shells (AAS), and `show_in_3d`, which points your 3D view at something.
 - **Transparency.** Every tool call is shown above the answer.
 - **Grounding.** Every figure in the answer is checked against the tool results, and figures that can't be traced are flagged.
 - **Proposals.** The copilot can't approve or run anything. **propose_plan** pauses for your confirmation and then creates a *pending* recommendation that a person approves in Approvals.
@@ -395,6 +416,14 @@ Design details: [docs/architecture.md § 7](docs/architecture.md#7-agentic-layer
 | `GET /api/audit` · `GET /api/kpis` · `GET /api/integrations` · `POST /api/integrations/test` | Audit, KPIs, integration status (with each setting's source) and tests |
 | `GET /api/aas` | Asset Administration Shell (v3 JSON) of every machine; `?asset=ID` to filter, `?download=1` for a file |
 | `GET/POST /api/maintenance/:workOrderId` | The guided procedure for a work order; POST `{stepId, by}` signs the next step (in order, test run gated on the live limit) |
+| `POST /api/experiments` | Replicate every plan under uncertainty: means, 95 % intervals, P(late), P(failure), P(best) (read-only) |
+| `GET/POST /api/snapshots`, `POST/DELETE /api/snapshots/:id` | List and save named snapshots of the twin; restore or delete one (admin) |
+| `GET/POST /api/views`, `DELETE /api/views/:id` | Saved 3D viewpoints and virtual cameras |
+| `GET/POST /api/sequences`, `DELETE /api/sequences/:id` | Commissioning sequences (validated against the twin's machines and signals) |
+| `GET/POST /api/signal-links`, `DELETE /api/signal-links/:id` | Field tag → twin signal links (audited) |
+| `GET /api/models`, `GET/POST/DELETE /api/models/:kind` | Uploaded .glb models per machine type (upload and remove need admin) |
+| `POST /api/twin-view/ask` | A 3D frame and a question; Muse Spark answers using the twin's state |
+| Backend `/api/v1/field/*` (via `/api/backend`) | OPC UA browse and read, Modbus read, linked-tag reads, and the simulated PLC (start, update, stop) |
 | `GET/PUT /api/intelligence` | The four features: on/off (PUT is admin), last sync, headline counts |
 | `GET/PUT /api/intelligence/:feature/config` | A feature's backend configuration and history (PUT is admin) |
 | `GET /api/intelligence/:feature/analytics` | Data for the feature's Analytics page (`enabled: false` while the feature is off) |
@@ -544,9 +573,9 @@ The Compose stack is sized for a demo and a single plant. Each part has a standa
 ## Testing
 
 ```bash
-npm test               # 149 Vitest tests (web app)
-npm run test:backend   # 84 pytest tests (intelligence backend)
-npm run build && npm run test:e2e   # 21 Playwright tests against the production server
+npm test               # 174 Vitest tests (web app)
+npm run test:backend   # 85 pytest tests (intelligence backend)
+npm run build && npm run test:e2e   # 22 Playwright tests against the production server
 cd services/vision && uv run pytest # 16 pytest tests for the Python vision service
 ```
 

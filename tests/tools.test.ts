@@ -3,16 +3,33 @@ import { callTwinTool, TWIN_TOOLS, type ToolStore } from "@/domain/tools/twin-to
 import type { FactoryState } from "@/domain/types";
 import { crisis, NOW } from "./helpers";
 
+const ARGS: Record<string, Record<string, unknown>> = {
+  diagnose_asset: { assetId: "A-ROB-03" },
+  get_line_flow: { lineId: "LINE-A" },
+  get_live_signals: { assetId: "A-ROB-03" },
+  get_asset_telemetry: { assetId: "A-ROB-03" },
+  get_maintenance_history: { assetId: "A-ROB-03" },
+  get_asset_shell: { assetId: "A-ROB-03" },
+  get_maintenance_guide: { workOrderId: "__first__" },
+  get_recommendation: { recommendationId: "__first__" },
+  get_order: { orderId: "__first__" },
+};
+
 const storeFor = (s: FactoryState): ToolStore => ({ get: () => s, mutate: (fn) => fn(s), now: () => NOW });
 
 describe("twin tools", () => {
   it("every read tool runs on the crisis factory without changing it", () => {
     const s = crisis();
     const before = JSON.stringify(s);
+    ARGS.get_maintenance_guide.workOrderId = s.workOrders[0]?.id;
+    ARGS.get_order.orderId = s.orders[0].id;
     for (const t of TWIN_TOOLS.filter((x) => x.effect === "read")) {
-      const args = t.name === "diagnose_asset" ? { assetId: "A-ROB-03" } : {};
+      if (t.name === "get_maintenance_guide" && !s.workOrders.length) continue;
+      if (t.name === "get_recommendation" && !s.recommendations.length) continue;
+      if (t.name === "get_recommendation") ARGS.get_recommendation.recommendationId = s.recommendations[0].id;
+      const args = ARGS[t.name] ?? {};
       const out = callTwinTool(storeFor(s), t.name, args, "Test");
-      expect(JSON.stringify(out).length).toBeGreaterThan(10);
+      expect(JSON.stringify(out).length, t.name).toBeGreaterThan(t.name.startsWith("list_") ? 1 : 10);
     }
     expect(JSON.stringify(s)).toBe(before);
   });
@@ -52,7 +69,8 @@ describe("twin tools", () => {
 
   it("has no tool that can approve, execute or command equipment", () => {
     for (const t of TWIN_TOOLS) expect(t.name).not.toMatch(/approve|execute|reject|rollback|fault|reset|command|write/);
-    expect(TWIN_TOOLS.filter((t) => t.effect !== "read").map((t) => t.name)).toEqual(["propose_plan"]);
+    expect(TWIN_TOOLS.filter((t) => t.effect === "propose").map((t) => t.name)).toEqual(["propose_plan"]);
+    expect(TWIN_TOOLS.filter((t) => t.effect === "ui").map((t) => t.name)).toEqual(["show_in_3d"]);
   });
 });
 
@@ -67,5 +85,33 @@ describe("answer grounding", async () => {
     expect(checkGrounding("It saves $25,000 and 940 units", sources).unverified).toEqual(["$25,000", "940"]);
     const diff = checkGrounding("Rerouting saves $44,015 versus continuing", [{ continueCost: 57676, rerouteCost: 13661 }]);
     expect(diff).toMatchObject({ unverified: [], derived: ["$44,015"] });
+  });
+
+  it("has about 30 tools with unique names, and operate tools return live, engine-backed figures", () => {
+    expect(TWIN_TOOLS.length).toBeGreaterThanOrEqual(30);
+    expect(new Set(TWIN_TOOLS.map((t) => t.name)).size).toBe(TWIN_TOOLS.length);
+    const s = crisis();
+    const st = storeFor(s);
+    const sig = callTwinTool(st, "get_live_signals", { assetId: "a-rob-03" }, "Test") as { name: string; state: string }[];
+    expect(sig.map((x) => x.name)).toContain("Vibration");
+    const alarms = callTwinTool(st, "list_alarms", {}, "Test") as { assetId: string }[];
+    expect(alarms.some((a) => a.assetId === "A-ROB-03")).toBe(true);
+    const exp = callTwinTool(st, "run_experiment", { assetId: "A-ROB-03", replications: 8 }, "Test") as { recommendedId: string; plans: { id: string; pFailurePct: number }[] };
+    expect(exp.recommendedId).not.toBe("continue");
+    expect(exp.plans.find((p) => p.id === "continue")!.pFailurePct).toBe(100);
+    const shell = callTwinTool(st, "get_asset_shell", { assetId: "A-ROB-03" }, "Test") as { assetAdministrationShells: unknown[] };
+    expect(shell.assetAdministrationShells).toHaveLength(1);
+  });
+
+  it("show_in_3d validates the target and changes nothing", () => {
+    const s = crisis();
+    const before = JSON.stringify(s);
+    const st = storeFor(s);
+    expect(callTwinTool(st, "show_in_3d", { target: "a-rob-03" }, "Test")).toEqual({ shown: "A-ROB-03" });
+    expect(callTwinTool(st, "show_in_3d", { target: "overview" }, "Test")).toEqual({ shown: "overview" });
+    expect(callTwinTool(st, "show_in_3d", { target: `cam:${s.cameras[0].id}` }, "Test")).toEqual({ shown: `cam:${s.cameras[0].id}` });
+    expect(() => callTwinTool(st, "show_in_3d", { target: "cam:NOPE" }, "Test")).toThrow(/Nothing called/);
+    expect(() => callTwinTool(st, "show_in_3d", { target: "ZZZ" }, "Test")).toThrow(/Unknown asset/);
+    expect(JSON.stringify(s)).toBe(before);
   });
 });

@@ -6,10 +6,13 @@ import { Environment, Lightformer, OrbitControls, PerformanceMonitor } from "@re
 import { createXRStore, XR, XROrigin } from "@react-three/xr";
 import * as THREE from "three";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
-import { Activity, AlertTriangle, Bot, Glasses, Smartphone, Cctv, Crosshair, Download, Eye, Gem, Maximize, Pause, Play, RotateCw, Tag } from "lucide-react";
+import { Activity, AlertTriangle, Bookmark, Bot, Glasses, Smartphone, Cctv, Crosshair, Download, Eye, Gem, Maximize, Pause, Play, RotateCw, Pin, Sparkles, Tag, Trash2, Video, X } from "lucide-react";
+import { useUi } from "@/client/store";
+import { useView3d } from "@/client/view3d";
+import { LIVE_CAMERA_LIMIT, type Vec3 } from "@/domain/views";
 import type { Highlight } from "@/client/store";
 import { amrFleet } from "@/domain/intralogistics";
-import { activeAlarms, lineFlows, lineOutput } from "@/domain/live";
+import { activeAlarms, assetSignals, lineFlows, lineOutput } from "@/domain/live";
 import type { FactoryState } from "@/domain/types";
 import { cn } from "@/lib/cn";
 import { machineParts } from "../iso/geometry";
@@ -18,7 +21,8 @@ import { Tip } from "../ui/primitives";
 import { amrPaths } from "./amr-paths";
 import { useMaterials, type Quality } from "./materials";
 import { usePalette, type Palette } from "./palette";
-import { Amr3D, BayZone, Belt3D, Camera3D, Machine3D, P, Rack3D, Shell, STATUS_COLOR, Truck3D } from "./scene";import { MISSION } from "../ui/labels";
+import { Amr3D, BayZone, Belt3D, Camera3D, Machine3D, P, Rack3D, Shell, STATUS_COLOR, Truck3D } from "./scene";
+import { MISSION } from "../ui/labels";
 import { savePref } from "@/client/server-storage";
 
 
@@ -37,6 +41,7 @@ function storedQuality(): Quality | null {
 }
 
 type Goal = { target: THREE.Vector3; position: THREE.Vector3 } | null;
+const EMPTY: string[] = [];
 
 /** A DOM label pinned to a point in the scene. */
 interface Anchor {
@@ -101,18 +106,47 @@ function CameraRig({ goal, onArrive }: { goal: Goal; onArrive: () => void }) {
   return null;
 }
 
+type Pose = { position: Vec3; target: Vec3 };
+/** Renders the current view once and returns it as a JPEG (for "Ask AI about this view"). */
+type Capture = () => Promise<Blob | null>;
+/**
+ * Keeps the current camera pose in a ref, so "save this view" can read it without re-rendering,
+ * and exposes a frame capture (render + encode in the same task, before the buffer is cleared).
+ */
+function PoseProbe({ pose, capture }: { pose: MutableRefObject<Pose | null>; capture: MutableRefObject<Capture | null> }) {
+  const { camera, controls, gl, scene } = useThree() as unknown as { camera: THREE.PerspectiveCamera; controls: OrbitControlsImpl | null; gl: THREE.WebGLRenderer; scene: THREE.Scene };
+  useEffect(() => {
+    capture.current = () =>
+      new Promise((resolve) => {
+        gl.render(scene, camera);
+        gl.domElement.toBlob((b) => resolve(b), "image/jpeg", 0.85);
+      });
+    return () => {
+      capture.current = null;
+    };
+  }, [gl, scene, camera, capture]);
+  useFrame(() => {
+    if (!controls) return;
+    pose.current = { position: camera.position.toArray() as Vec3, target: controls.target.toArray() as Vec3 };
+  });
+  return null;
+}
+
 export function Twin3D({
   state,
   highlight,
   selectedId,
   onSelect,
   orderRisk,
+  views = false,
 }: {
   state: FactoryState;
   highlight: Highlight | null;
   selectedId: string | null;
   onSelect: (id: string | null) => void;
   orderRisk: Record<string, boolean>;
+  /** Show the saved-views menu and obey view requests (the copilot, the camera wall). */
+  views?: boolean;
 }) {
   const pal = usePalette();
   // WebGL support, and whether it runs in software (no GPU): probed once, before the scene is created.
@@ -210,6 +244,30 @@ export function Twin3D({
     setGoal({ target: t, position: t.clone().add(new THREE.Vector3(3.2, 3.4, 3.2)) });
   };
 
+  // Saved views and requests from elsewhere (views menu, camera wall, copilot).
+  const pose = useRef<Pose | null>(null);
+  const capture = useRef<Capture | null>(null);
+  const loadModels = useView3d((s) => s.loadModels);
+  useEffect(() => {
+    void loadModels(state.profile.id);
+  }, [loadModels, state.profile.id]);
+  const pins = useView3d((s) => s.pinned[state.profile.id]) ?? EMPTY;
+  const togglePin = useView3d((s) => s.togglePin);
+  const request = useView3d((s) => s.request);
+  const consume = useView3d((s) => s.consume);
+  const focusRef = useRef(focus);
+  focusRef.current = focus;
+  useEffect(() => {
+    if (!views || !request) return;
+    consume(request.nonce);
+    if (request.kind === "pose") setGoal({ position: new THREE.Vector3(...request.position), target: new THREE.Vector3(...request.target) });
+    else if (request.kind === "reset") setGoal({ target: center.clone(), position: home.clone() });
+    else {
+      onSelect(request.id);
+      focusRef.current(request.id);
+    }
+  }, [views, request, consume, center, home, onSelect]);
+
   const affected = (lineId: string, id: string) => !highlight || highlight.assetIds.includes(id) || highlight.lineIds.includes(lineId) || highlight.targetAssetId === id;
 
   // Labels: machines (smart or all), trucks, the selected camera, robots and bay names.
@@ -254,6 +312,18 @@ export function Twin3D({
         node: <Chip title={pm.m.id} sub={sub} color={isTarget ? pal.accent : STATUS_COLOR[st]} emphasis={st !== "healthy" || isTarget || selected} pal={pal} />,
       });
     }
+    // Pinned HMI panels: live signals of a machine, kept on screen while you move around.
+    if (views)
+      for (const id of pins) {
+        const pm = layout.machines.find((m) => m.m.id === id);
+        const a = assetById.get(id);
+        if (!pm || !a) continue;
+        out.push({
+          id: `pin:${id}`,
+          at: fixed(P(pm.x, pm.y, machineParts(pm.m.kind).height + 1.9)),
+          node: <PinnedPanel state={state} assetId={id} onClose={() => togglePin(state.profile.id, id)} />,
+        });
+      }
     // End-of-line counters (live data): good units in the last 8 h at each line's last machine.
     if (live)
       for (const line of state.lines) {
@@ -290,7 +360,7 @@ export function Twin3D({
         });
       }
     return out;
-  }, [pal, layout, highlight, selectedId, labels, cameras, robots, paths, live, state, flows]);
+  }, [pal, layout, highlight, selectedId, labels, cameras, robots, paths, live, state, flows, views, pins, togglePin]);
   const anchorsRef = useRef<Anchor[]>([]);
   anchorsRef.current = anchors;
   const labelEls = useRef(new Map<string, HTMLDivElement>());
@@ -347,6 +417,7 @@ export function Twin3D({
           onStart={() => setGoal(null)}
         />
         <CameraRig goal={goal} onArrive={() => setGoal(null)} />
+        <PoseProbe pose={pose} capture={capture} />
         <LabelProjector anchors={anchorsRef} els={labelEls} />
         {quality === "high" && (
           <Suspense fallback={null}>
@@ -355,7 +426,7 @@ export function Twin3D({
         )}
       </Canvas>
       <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden>
-        {anchors.map((a) => (
+        {anchors.filter((a) => !a.id.startsWith("pin:")).map((a) => (
           <div
             key={a.id}
             ref={(el) => {
@@ -369,6 +440,23 @@ export function Twin3D({
           </div>
         ))}
       </div>
+      <div className="pointer-events-none absolute inset-0 overflow-hidden" data-testid="pinned-panels">
+        {anchors
+          .filter((a) => a.id.startsWith("pin:"))
+          .map((a) => (
+            <div
+              key={a.id}
+              ref={(el) => {
+                if (el) labelEls.current.set(a.id, el);
+                else labelEls.current.delete(a.id);
+              }}
+              className="absolute top-0 left-0"
+              style={{ visibility: "hidden" }}
+            >
+              <div className="pointer-events-auto -translate-x-1/2 -translate-y-full">{a.node}</div>
+            </div>
+          ))}
+      </div>
 
       {/* view controls */}
       <div className="absolute bottom-3 left-3 flex flex-col overflow-hidden rounded-[10px] border border-line bg-surface shadow-[var(--shadow-card)]">
@@ -376,6 +464,16 @@ export function Twin3D({
           { label: "Reset view", icon: Maximize, onClick: () => setGoal({ target: center.clone(), position: home.clone() }) },
           { label: "Top view", icon: Eye, onClick: () => setGoal({ target: center.clone(), position: top.clone() }) },
           { label: "Focus the selection", icon: Crosshair, onClick: () => focus(selectedId), disabled: !selectedId },
+          ...(views
+            ? [
+                {
+                  label: selectedId && pins.includes(selectedId) ? "Unpin the live panel" : "Pin a live panel for the selected machine",
+                  icon: Pin,
+                  onClick: () => selectedId && togglePin(state.profile.id, selectedId),
+                  disabled: !selectedId || !state.assets.some((a) => a.id === selectedId),
+                },
+              ]
+            : []),
           { label: spin ? "Stop turntable" : "Turntable", icon: spin ? Pause : RotateCw, onClick: () => setSpin(!spin) },
           {
             label: exporting ? "Exporting…" : "Download the 3D model (.glb)",
@@ -477,6 +575,85 @@ export function Twin3D({
         Drag to orbit · right-drag to pan · scroll to zoom · double-click to focus
       </p>
       <DoubleClickFocus onFocus={() => focus(selectedId)} />
+      {views && (
+        <div className="absolute bottom-12 left-14 flex items-end gap-1.5">
+          <ViewsMenu facilityId={state.profile.id} pose={pose} />
+          <AskView capture={capture} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Save the current viewpoint as a view (fly back later) or a virtual camera (live on the camera wall). */
+function ViewsMenu({ facilityId, pose }: { facilityId: string; pose: MutableRefObject<Pose | null> }) {
+  const { views, load, save, remove, go, facilityId: loadedFor } = useView3d();
+  const operator = useUi((s) => s.operator);
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState("");
+  const [camera, setCamera] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    void load(loadedFor !== null && loadedFor !== facilityId);
+  }, [load, facilityId, loadedFor]);
+  const cams = views.filter((v) => v.kind === "camera").length;
+  const submit = async () => {
+    const p = pose.current;
+    if (!p || !name.trim()) return;
+    setError(null);
+    try {
+      await save({ name: name.trim(), kind: camera ? "camera" : "view", ...p, by: operator });
+      setName("");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+  return (
+    <div className="relative" data-testid="views-menu">
+      <button
+        onClick={() => setOpen(!open)}
+        aria-expanded={open}
+        className={cn("flex h-7 items-center gap-1.5 rounded-lg border px-2.5 text-[11.5px]", open ? "border-accent/50 bg-accent/12 text-accent-ink" : "border-line bg-surface text-muted hover:text-ink")}
+      >
+        <Bookmark className="h-3 w-3" /> Views{views.length ? ` · ${views.length}` : ""}
+      </button>
+      {open && (
+        <div className="absolute bottom-9 left-0 w-[270px] rounded-lg border border-line bg-surface p-2.5 text-[11.5px] shadow-[var(--shadow-card)]">
+          <ul className="mb-2 max-h-44 space-y-0.5 overflow-auto">
+            {views.length === 0 && <li className="text-muted">No saved views. Orbit to a viewpoint, name it and save.</li>}
+            {views.map((v) => (
+              <li key={v.id} className="flex items-center gap-1.5">
+                <button onClick={() => go({ kind: "pose", position: v.position, target: v.target })} className="flex min-w-0 flex-1 items-center gap-1.5 rounded px-1.5 py-1 text-left text-ink-2 hover:bg-surface-2 hover:text-ink">
+                  {v.kind === "camera" ? <Video className="h-3 w-3 shrink-0 text-accent" /> : <Bookmark className="h-3 w-3 shrink-0 text-muted" />}
+                  <span className="truncate">{v.name}</span>
+                </button>
+                <button aria-label={`Delete view ${v.name}`} onClick={() => void remove(v.id)} className="p-1 text-muted hover:text-critical">
+                  <Trash2 className="h-3 w-3" />
+                </button>
+              </li>
+            ))}
+          </ul>
+          <div className="flex gap-1.5">
+            <input
+              aria-label="View name"
+              value={name}
+              maxLength={60}
+              placeholder="Name this viewpoint"
+              onChange={(e) => setName(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && void submit()}
+              className="h-7 min-w-0 flex-1 rounded-md border border-line bg-shell px-2 text-ink outline-none focus:border-accent"
+            />
+            <button onClick={() => void submit()} disabled={!name.trim()} className="h-7 rounded-md border border-accent/50 bg-accent/12 px-2.5 font-medium text-accent-ink disabled:opacity-40">
+              Save
+            </button>
+          </div>
+          <label className="mt-1.5 flex items-center gap-1.5 text-muted">
+            <input type="checkbox" checked={camera} onChange={(e) => setCamera(e.target.checked)} />
+            Virtual camera: show live on the CCTV wall{cams >= LIVE_CAMERA_LIMIT ? ` (wall shows the first ${LIVE_CAMERA_LIMIT})` : ""}
+          </label>
+          {error && <p className="mt-1 text-critical-ink">{error}</p>}
+        </div>
+      )}
     </div>
   );
 }
@@ -496,7 +673,7 @@ function DoubleClickFocus({ onFocus }: { onFocus: () => void }) {
   return null;
 }
 
-function Scene({
+export function Scene({
   pal,
   quality,
   layout,
@@ -597,5 +774,100 @@ function Scene({
       ))}
       </group>
     </>
+  );
+}
+
+/** Ask the AI about what this view shows: a frame of the 3D view plus the twin's actual state. */
+function AskView({ capture }: { capture: MutableRefObject<Capture | null> }) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [out, setOut] = useState<{ answer: string; model: string } | { error: string } | null>(null);
+  const ask = async () => {
+    const shot = await capture.current?.();
+    if (!shot) return setOut({ error: "Couldn't capture the 3D view." });
+    setBusy(true);
+    setOut(null);
+    try {
+      const form = new FormData();
+      form.append("image", shot, "twin-view.jpg");
+      form.append("question", q);
+      const res = await fetch("/api/twin-view/ask", { method: "POST", body: form, cache: "no-store" });
+      const d = (await res.json().catch(() => null)) as { answer?: string; model?: string; error?: string } | null;
+      setOut(res.ok && d?.answer ? { answer: d.answer, model: d.model ?? "" } : { error: d?.error ?? `Request failed (${res.status})` });
+    } catch (e) {
+      setOut({ error: e instanceof Error ? e.message : String(e) });
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="relative" data-testid="ask-view">
+      <button
+        onClick={() => setOpen(!open)}
+        aria-expanded={open}
+        className={cn("flex h-7 items-center gap-1.5 rounded-lg border px-2.5 text-[11.5px]", open ? "border-agent/50 bg-agent/12 text-agent" : "border-line bg-surface text-muted hover:text-ink")}
+      >
+        <Sparkles className="h-3 w-3" /> Ask AI about this view
+      </button>
+      {open && (
+        <div className="absolute bottom-9 left-0 w-[320px] rounded-lg border border-line bg-surface p-2.5 text-[11.5px] shadow-[var(--shadow-card)]">
+          <div className="flex gap-1.5">
+            <input
+              aria-label="Question about the view"
+              value={q}
+              maxLength={500}
+              placeholder="What's wrong here? (optional)"
+              onChange={(e) => setQ(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && !busy && void ask()}
+              className="h-7 min-w-0 flex-1 rounded-md border border-line bg-shell px-2 text-ink outline-none focus:border-accent"
+            />
+            <button onClick={() => void ask()} disabled={busy} className="h-7 rounded-md border border-agent/50 bg-agent/12 px-2.5 font-medium text-agent disabled:opacity-40">
+              {busy ? "Looking…" : "Ask"}
+            </button>
+          </div>
+          {out && "answer" in out && (
+            <div className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap text-ink-2" data-testid="ask-view-answer">
+              {out.answer}
+              <p className="mt-1 text-[10.5px] text-muted">{out.model} · picture + live twin state</p>
+            </div>
+          )}
+          {out && "error" in out && <p className="mt-2 text-critical-ink">{out.error}</p>}
+          <p className="mt-1.5 text-[10.5px] text-muted">Sends this frame and the twin&apos;s current state to the AI. Nothing is stored.</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** A pinned HMI panel: the machine's live signals, with alarm states, anchored above it in 3D. */
+function PinnedPanel({ state, assetId, onClose }: { state: FactoryState; assetId: string; onClose: () => void }) {
+  const a = state.assets.find((x) => x.id === assetId);
+  if (!a) return null;
+  const sig = assetSignals(state, a).filter((x) => x.name !== "Fault");
+  return (
+    <div className="w-[210px] overflow-hidden rounded-lg border border-line bg-surface/95 text-[11px] shadow-[var(--shadow-card)] backdrop-blur" data-testid={`pinned-${assetId}`}>
+      <div className="flex items-center gap-1.5 border-b border-line px-2 py-1">
+        <span className={cn("h-2 w-2 rounded-full", a.status === "healthy" ? "bg-healthy" : a.status === "warning" ? "bg-warning" : a.status === "critical" ? "bg-critical" : "bg-muted")} />
+        <span className="min-w-0 flex-1 truncate font-medium text-ink">
+          <span className="font-mono text-[10px] text-muted">{a.id}</span> {a.name}
+        </span>
+        <button aria-label={`Unpin ${a.id}`} onClick={onClose} className="text-muted hover:text-ink">
+          <X className="h-3 w-3" />
+        </button>
+      </div>
+      <table className="w-full">
+        <tbody>
+          {sig.map((x) => (
+            <tr key={x.id}>
+              <td className="px-2 py-0.5 text-muted">{x.name}</td>
+              <td className={cn("tabular px-2 py-0.5 text-right", x.state === "trip" ? "text-critical-ink" : x.state === "alarm" ? "text-warning-ink" : "text-ink")}>
+                {typeof x.value === "number" ? (Math.abs(x.value) >= 100 ? x.value.toFixed(0) : x.value.toFixed(1)) : x.value ? "yes" : "no"} {x.unit}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
