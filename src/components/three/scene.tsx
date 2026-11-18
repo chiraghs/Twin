@@ -173,7 +173,7 @@ export function BayZone({ bay, mats, accent, color, hot, dim }: { bay: Bay; mats
  * An industrial robot arm with forward kinematics: links between the joints of the machine's pose,
  * animated through a pick-and-place motion while the machine runs, with a two-finger gripper.
  */
-function RobotArm({ points, mats, quality, dim, moving, phase }: { points: [number, number, number][]; mats: Materials; quality: Quality; dim: boolean; moving: boolean; phase: number }) {
+function RobotArm({ points, mats, quality, dim, moving, phase, rate = 1 }: { points: [number, number, number][]; mats: Materials; quality: Quality; dim: boolean; moving: boolean; phase: number; rate?: number }) {
   const rig = useMemo(() => {
     const [bu, bv, bz] = points[0];
     const end = points[points.length - 1];
@@ -196,9 +196,12 @@ function RobotArm({ points, mats, quality, dim, moving, phase }: { points: [numb
   const tool = useRef<THREE.Group>(null);
   const fingers = useRef<(THREE.Mesh | null)[]>([]);
   const wave = [0.12, -0.22, 0.3];
-  useFrame(({ clock }) => {
-    const t = clock.elapsedTime * 1.1 + phase;
-    const k = moving ? 1 : 0;
+  // Motion phase advances with the commanded speed and holds its pose when the machine stops.
+  const clockT = useRef(phase);
+  useFrame((_, dt) => {
+    if (moving) clockT.current += Math.min(dt, 0.1) * 1.1 * rate;
+    const t = clockT.current;
+    const k = 1;
     if (yaw.current) yaw.current.rotation.y = -rig.heading + k * Math.sin(t * 0.8) * 0.65;
     let x = 0;
     let y = 0;
@@ -221,7 +224,7 @@ function RobotArm({ points, mats, quality, dim, moving, phase }: { points: [numb
       tool.current.position.set(x, y, 0);
       tool.current.rotation.set(0, 0, a - Math.PI / 2);
     }
-    const open = 0.035 + k * 0.03 * (Math.sin(t * 2) + 1);
+    const open = 0.035 + (moving ? 0.03 * (Math.sin(t * 2) + 1) : 0.03);
     fingers.current.forEach((f, i) => f && (f.position.z = (i ? 1 : -1) * open));
   });
   const linkMat = mats.get("robot", dim);
@@ -366,6 +369,71 @@ function Pulse({ w, d, color, dashed }: { w: number; d: number; color: string; d
   );
 }
 
+/** Which moving part a machine type shows: a stroking ram, a spinning spindle or a reciprocating head. */
+const MOTION: Partial<Record<AssetKind, "stroke" | "spin" | "shuttle">> = {
+  press: "stroke",
+  welder: "stroke",
+  molder: "stroke",
+  cnc: "spin",
+  mixer: "spin",
+  extruder: "spin",
+  pump: "spin",
+  packager: "shuttle",
+  labeler: "shuttle",
+  filler: "shuttle",
+  palletizer: "shuttle",
+};
+
+/**
+ * The machine's working motion on top of its body, paced by the commanded speed. It holds its
+ * position when the machine is stopped (tripped, in maintenance or offline).
+ */
+function MotionHead({ kind, height, L, W, moving, rate, phase, mats, dim }: { kind: AssetKind; height: number; L: number; W: number; moving: boolean; rate: number; phase: number; mats: Materials; dim: boolean }) {
+  const mode = MOTION[kind];
+  const part = useRef<THREE.Group>(null);
+  const t = useRef(phase);
+  useFrame((_, dt) => {
+    if (moving) t.current += Math.min(dt, 0.1) * rate;
+    const g = part.current;
+    if (!g) return;
+    if (mode === "stroke") g.position.y = height + 0.16 - 0.12 * (0.5 + 0.5 * Math.sin(t.current * 3.2));
+    else if (mode === "spin") g.rotation.y = t.current * 6;
+    else if (mode === "shuttle") g.position.x = Math.sin(t.current * 2.4) * (L * 0.28);
+  });
+  if (!mode) return null;
+  const steel = mats.get("steel", dim);
+  const dark = mats.get("darkPlastic", dim);
+  if (mode === "stroke")
+    return (
+      <group ref={part} position={[0, height + 0.1, 0]}>
+        <mesh material={steel} castShadow>
+          <boxGeometry args={[Math.min(0.42, L * 0.4), 0.08, Math.min(0.36, W * 0.4)]} />
+        </mesh>
+        <mesh position={[0, 0.12, 0]} material={dark}>
+          <cylinderGeometry args={[0.04, 0.04, 0.2, 12]} />
+        </mesh>
+      </group>
+    );
+  if (mode === "spin")
+    return (
+      <group ref={part} position={[0, height + 0.06, 0]}>
+        <mesh material={steel} castShadow>
+          <cylinderGeometry args={[0.1, 0.1, 0.1, 16]} />
+        </mesh>
+        <mesh position={[0.06, 0.06, 0]} material={dark}>
+          <boxGeometry args={[0.1, 0.03, 0.03]} />
+        </mesh>
+      </group>
+    );
+  return (
+    <group ref={part} position={[0, height + 0.05, 0]}>
+      <mesh material={dark} castShadow>
+        <boxGeometry args={[0.14, 0.08, Math.min(0.3, W * 0.4)]} />
+      </mesh>
+    </group>
+  );
+}
+
 export function Machine3D({
   pm,
   pal,
@@ -394,6 +462,9 @@ export function Machine3D({
   const line = pal.resolve(pm.color);
   const running = status !== "offline" && status !== "maintenance";
   const phase = useMemo(() => (pm.index * 1.7) % 6, [pm.index]);
+  // Motion speed follows the commanded speed; a machine that delivers nothing stands still.
+  const rate = (pm.m.speedPct ?? 100) / 100;
+  const moving = running && (pm.m.speedPct === undefined || pm.m.throughput > 0);
   const isRobot = pm.m.kind === "robot";
   const materialFor = (tone: Tone): THREE.Material => {
     if (tone === "accent") return mats.paint(line, dim);
@@ -401,7 +472,7 @@ export function Machine3D({
     return mats.get(TONE_MATERIAL[tone], dim);
   };
   return (
-    <group position={P(pm.x, pm.y)} {...pick(onSelect)}>
+    <group position={P(pm.x, pm.y)} name={pm.m.id} userData={{ twin: { type: "machine", assetId: pm.m.id, name: pm.m.name, kind: pm.m.kind, lineId: pm.lineId, status, health: Math.round(pm.m.health), speedPct: pm.m.speedPct ?? null } }} {...pick(onSelect)}>
       <group rotation={[0, -(((pm.rot ?? (pm.dir === "x" ? 0 : 90)) * Math.PI) / 180), 0]}>
         {/* status pad: only when something needs attention */}
         {status !== "healthy" && (
@@ -415,9 +486,10 @@ export function Machine3D({
           p.t === "box" ? (
             <Solid key={i} size={[p.L, Math.max(0.01, p.H), p.W]} position={[p.u, p.z0 + p.H / 2, p.v]} material={materialFor(p.tone)} quality={quality} />
           ) : p.t === "arm" ? (
-            <RobotArm key={i} points={p.points} mats={mats} quality={quality} dim={dim} moving={running && !dim} phase={phase} />
+            <RobotArm key={i} points={p.points} mats={mats} quality={quality} dim={dim} moving={moving && !dim} phase={phase} rate={rate} />
           ) : null,
         )}
+        {!isRobot && <MotionHead kind={pm.m.kind} height={height} L={f.L} W={f.W} moving={moving && !dim} rate={rate} phase={phase} mats={mats} dim={dim} />}
         {HMI_KINDS.has(pm.m.kind) && <Hmi u={-f.L / 2 + 0.18} v={f.W / 2 + 0.22} mats={mats} dim={dim} />}
         {isRobot && <Fence L={f.L} W={f.W} mats={mats} dim={dim} />}
         <StackLight position={[-f.L / 2 + 0.16, -f.W / 2 + 0.16]} height={height} status={status} mats={mats} />
@@ -428,18 +500,49 @@ export function Machine3D({
 
 /* ─────────────────────────────── conveyors ─────────────────────────────── */
 
-export function Belt3D({ bt, pal, mats, quality, hot, dim }: { bt: Belt; pal: Palette; mats: Materials; quality: Quality; hot: boolean; dim: boolean }) {
+/** Belt speed in layout units per second at nameplate rate. */
+const BELT_SPEED = 0.55;
+const CARTON_PITCH = 0.3;
+
+/**
+ * A conveyor with product moving on it. `flow` is the line's pace relative to nameplate (0 = stopped):
+ * product moves at that speed, and when the line stops it queues up against the end of the belt.
+ */
+export function Belt3D({ bt, pal, mats, quality, hot, dim, flow = bt.running ? 1 : 0 }: { bt: Belt; pal: Palette; mats: Materials; quality: Quality; hot: boolean; dim: boolean; flow?: number }) {
   const [ax, ay] = bt.from;
   const [bx, by] = bt.to;
   const len = Math.hypot(bx - ax, by - ay);
   const angle = Math.atan2(by - ay, bx - ax);
   const cartons = useRef<THREE.Group>(null);
   const n = Math.max(1, Math.floor(len / 0.75));
-  useFrame(({ clock }) => {
-    if (!cartons.current || !bt.running) return;
-    cartons.current.children.forEach((c, i) => {
-      c.position.x = (((clock.elapsedTime * 0.55 + (i * len) / n) % len) + len) % len - len / 2;
-    });
+  // Distance travelled so far; integrating (not clock × speed) keeps product in place when the speed changes.
+  const travel = useRef(0);
+  const sensor = useRef<THREE.MeshBasicMaterial>(null);
+  useFrame((_, dt) => {
+    const group = cartons.current;
+    if (!group) return;
+    const step = Math.min(dt, 0.1);
+    if (flow > 0) travel.current += step * BELT_SPEED * flow;
+    let nearEnd = false;
+    if (flow > 0) {
+      group.children.forEach((c, i) => {
+        const x = (((travel.current + (i * len) / n) % len) + len) % len;
+        c.position.x = x - len / 2;
+        if (len - x < 0.12) nearEnd = true;
+      });
+    } else {
+      // Stopped: product accumulates against the end of the belt, front carton first, each keeping its order.
+      const order = group.children.map((c, i) => ({ c, i, x: c.position.x + len / 2 })).sort((p, q) => q.x - p.x);
+      order.forEach(({ c, x }, rank) => {
+        const slot = Math.max(0.1, len - 0.15 - rank * CARTON_PITCH);
+        const target = Math.max(x, slot);
+        c.position.x = x + (target - x) * Math.min(1, step * 3) - len / 2;
+      });
+      // When the line restarts, carry on from where the queue stands.
+      travel.current = group.children[0] ? group.children[0].position.x + len / 2 : 0;
+    }
+    // End-of-belt photo-eye: flashes as product passes, red while the belt is blocked.
+    if (sensor.current) sensor.current.color.set(flow === 0 ? "#ef4444" : nearEnd ? "#4ade80" : "#16a34a");
   });
   const line = pal.resolve(bt.color);
   const legs = Math.max(2, Math.round(len / 0.9) + 1);
@@ -447,7 +550,7 @@ export function Belt3D({ bt, pal, mats, quality, hot, dim }: { bt: Belt; pal: Pa
   const rollers = Array.from({ length: nRollers }, (_, i) => -len / 2 + 0.05 + (i * (len - 0.1)) / (nRollers - 1));
   const steel = mats.get("steel", dim);
   return (
-    <group position={P((ax + bx) / 2, (ay + by) / 2)} rotation={[0, -angle, 0]}>
+    <group position={P((ax + bx) / 2, (ay + by) / 2)} rotation={[0, -angle, 0]} name={`conveyor-${bt.id}`} userData={{ twin: { type: "conveyor", lineId: bt.lineId, lengthUnits: Math.round(len * 100) / 100 } }}>
       {/* belt and side rails */}
       <mesh position={[0, 0.24, 0]} material={mats.get("rubber", dim)} receiveShadow castShadow>
         <boxGeometry args={[len, 0.03, 0.4]} />
@@ -476,15 +579,20 @@ export function Belt3D({ bt, pal, mats, quality, hot, dim }: { bt: Belt; pal: Pa
           <cylinderGeometry args={[0.03, 0.03, 0.42, 10]} />
         </mesh>
       ))}
-      {bt.running && !dim && (
+      {!dim && (
         <group ref={cartons}>
           {Array.from({ length: n }).map((_, i) => (
-            <mesh key={i} position={[0, 0.33, 0]} material={mats.get("carton")} castShadow>
+            <mesh key={i} position={[((i + 0.5) * len) / n - len / 2, 0.33, 0]} material={mats.get("carton")} castShadow>
               <boxGeometry args={[0.22, 0.14, 0.26]} />
             </mesh>
           ))}
         </group>
       )}
+      {/* photo-eye across the end of the belt */}
+      <mesh position={[len / 2 - 0.08, 0.36, 0]}>
+        <boxGeometry args={[0.012, 0.012, 0.46]} />
+        <meshBasicMaterial ref={sensor} color="#16a34a" toneMapped={false} />
+      </mesh>
     </group>
   );
 }

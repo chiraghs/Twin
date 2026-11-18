@@ -407,3 +407,31 @@ test("Plant-Private AI: Blueprint to Twin page runs on the open-weight model onl
     expect(res.status()).toBe(503);
   }
 });
+
+test("operate: live 3D data and alarms, commissioning commands, guided maintenance, AAS export", async ({ page, request }) => {
+  await request.post("/api/demo/crisis");
+  // Commissioning: a trip is audited and shows in the signal table.
+  await page.goto("/commissioning", { waitUntil: "domcontentloaded" });
+  await expect(page.getByTestId("signal-table")).toBeVisible();
+  await page.getByRole("button", { name: /Trip \(stop with a fault\)/ }).click();
+  await expect(page.getByTestId("signal-table").getByText("TRUE").first()).toBeVisible();
+  const state = (await (await request.get("/api/factory")).json()) as { assets: { id: string; mode: string }[]; audit: { title: string }[] };
+  expect(state.assets[0].mode).toBe("down");
+  expect(state.audit.some((a) => a.title.includes(state.assets[0].id))).toBe(true);
+  // 3D: alarm list and live data.
+  await page.goto("/twin", { waitUntil: "domcontentloaded" });
+  await page.getByRole("button", { name: "3D", exact: true }).click();
+  await expect(page.getByTestId("alarm-list")).toBeVisible();
+  await page.getByRole("button", { name: "Live data" }).click();
+  // Guided maintenance on a work order.
+  const wo = (await (await request.get("/api/factory")).json()) as { workOrders: { id: string }[] };
+  if (wo.workOrders.length) {
+    await page.goto("/guided-maintenance", { waitUntil: "domcontentloaded" });
+    await expect(page.getByTestId("guide-steps")).toBeVisible();
+    const signed = await request.post(`/api/maintenance/${wo.workOrders[0].id}`, { data: { stepId: "s2", by: "QA" } });
+    expect(signed.status()).toBe(409); // steps are signed in order
+  }
+  // AAS export.
+  const aas = (await (await request.get("/api/aas")).json()) as { assetAdministrationShells: unknown[]; submodels: unknown[] };
+  expect(aas.submodels.length).toBe(aas.assetAdministrationShells.length * 3);
+});

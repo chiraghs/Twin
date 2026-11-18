@@ -15,6 +15,8 @@ export interface IsoMachine {
   health: number;
   throughput: number;
   sensors: number;
+  /** Commanded speed (% of nameplate); machine motion in 3D follows it. Absent in spec previews. */
+  speedPct?: number;
   /** Floor position set in the playground (layout units, rotation in degrees). Absent: automatic layout. */
   pos?: { x: number; y: number; rot: number };
 }
@@ -77,7 +79,7 @@ export function isoModelFromState(state: FactoryState, orderRisk: Record<string,
       machines: l.assetIds
         .map((id) => state.assets.find((a) => a.id === id))
         .filter((a): a is NonNullable<typeof a> => !!a)
-        .map((a) => ({ id: a.id, name: a.name, kind: a.kind, status: a.status, health: a.healthScore, throughput: a.signal.throughput, sensors: a.sensors.length, ...(state.layout?.[a.id] ? { pos: state.layout[a.id] } : {}) })),
+        .map((a) => ({ id: a.id, name: a.name, kind: a.kind, status: a.status, health: a.healthScore, throughput: a.signal.throughput, sensors: a.sensors.length, speedPct: a.speedPct, ...(state.layout?.[a.id] ? { pos: state.layout[a.id] } : {}) })),
     })),
     inventory: state.inventory.map((i) => ({ id: i.id, name: i.name, fill: Math.max(0.08, Math.min(1, i.onHand / (i.reorderPoint * 3))), low: i.onHand < i.reorderPoint * 1.25 })),
     orders: state.orders.map((o) => ({ id: o.id, customer: o.customer, progress: o.fulfilled / o.quantity, atRisk: !!orderRisk[o.id], priority: o.priority })),

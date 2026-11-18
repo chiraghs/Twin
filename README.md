@@ -161,6 +161,7 @@ The fastest path is **Demo controls → Run Factory Crisis Demo** (top-right). I
 | **Muse Wonder** writes the orchestrator's decision briefing (Muse Spark as fallback), with schema validation, timeout, numeric grounding check and deterministic fallback | ✅ needs `MODEL_API_KEY` |
 | **SQLite system of record** shared by both services: normalised twin tables with change-only writes, settings and configuration history, per-browser preferences and drafts, copilot conversations, AI call log, run history ([data model](docs/data-model.md)) | ✅ |
 | **Intelligence Backend page** (via `/api/backend` proxy): fleet risk, maintenance copilot in 7 languages, recommendation approval, AOI inspection with defect boxes and dispositions, supply-chain what-if and assistant, mitigation approval, S&OP brief, shift handover, alarm triage, editable feature configs with history, live data model | ✅ needs the backend running |
+| **Operate the twin live:** products flowing on conveyors at each line's real pace and queuing when a line stops, machine motion following the speed setpoint, live data tags and end-of-line counters in 3D, an alarm list, **Signals & Commissioning** (every machine's signals with limits; audited speed, trip, degrade and restore commands), **Guided Maintenance** (work orders as signed step-by-step procedures with a live test-run check), snap-to-line in the Playground, **VR/AR** (WebXR), **.glb export** of the plant with Twin metadata, and **AAS export** (Asset Administration Shell v3) | ✅ |
 | **Four intelligence features on your own plant** (predictive maintenance, supply chain, demand forecasting, AOI vision): off by default, turned on and configured in **Admin → Features**; the plant is synced to the backend every 15 s, results reach the agents as sourced evidence, one-click proposals go to Approvals (preventive maintenance → work order, purchase order → inbound delivery), and each has an **Analytics** page | ✅ needs the backend running |
 | **DuckDB analytics** over the shared SQLite database: monthly demand, sensor health, supplier exposure, Meta Model API usage (Intelligence Backend → Analytics) | ✅ |
 | Open-source adapters with real connectivity tests: **MQTT** telemetry ingestion (Mosquitto, EMQX) and **S3-compatible** document storage (MinIO, SeaweedFS, any S3) | ✅ implemented; need configuration |
@@ -291,6 +292,20 @@ Switching needs the admin passcode (see [Admin access](#admin-access)); every sw
 
 ---
 
+## Operate the twin live
+
+| Feature | Where | What it does |
+|---|---|---|
+| Product flow | Digital Twin Studio → 3D | Product moves along each conveyor at the line's pace (the slowest running machine vs its nameplate). When a line stops, product queues at the end of the belt; the photo-eye at the belt end turns red |
+| Machine motion | 3D | Robots, press rams, spindles and packaging heads move at the commanded speed and hold position when a machine is tripped, in maintenance or offline |
+| Live data and alarms | 3D → **Live data** | Each machine shows throughput, vibration and health; each line's end shows good units in the last 8 h and its pace. Open incidents and limit breaches are listed top right; click one to focus the machine |
+| Signals & Commissioning | Operate → Signals & Commissioning | Every machine's signals (`ASSET.Signal` ids) with alarm and trip limits and trends. Admins can change the speed setpoint, trip, inject bearing wear or overheating, and restore. Commands act on the twin only and are audited |
+| Guided Maintenance | Operate → Guided Maintenance | A work order becomes an 8-step procedure for its machine type and failure mode (lock-out, zero-energy check, inspection, repair, alignment, lock removal, test run, sign-off). Steps are signed in order by name; the test run can only be signed when the live vibration or temperature is below the alarm limit. The machine is highlighted in 3D next to its manuals |
+| Snap-to-line | Playground | A dragged machine locks onto its line's axis and standard spacing when close, with a guide line |
+| VR / AR | 3D | **View in VR** / **View in AR** appear on WebXR devices (for example Meta Quest); you stand at the front of the plant floor |
+| .glb export | 3D → download | The plant as a binary glTF; every machine and conveyor carries `extras.twin` (asset id, kind, line, status, health, speed) |
+| AAS export | Assets → **Export AAS** (`GET /api/aas`) | Each machine as an Asset Administration Shell (metamodel v3 JSON) with Nameplate, TechnicalData and OperationalData submodels, for AAS tools such as Eclipse BaSyx |
+
 ## Twin Builder
 
 Open **Twin Builder** (sidebar, or **Create your twin** on the landing page). Give it any of:
@@ -378,6 +393,8 @@ Design details: [docs/architecture.md § 7](docs/architecture.md#7-agentic-layer
 | `POST /api/scenarios` · `POST /api/scenarios/compare` | Run and record · stateless comparison |
 | `GET/POST /api/recommendations` · `POST /api/recommendations/:id/{approve,reject,rollback}` | Recommendations and decisions |
 | `GET /api/audit` · `GET /api/kpis` · `GET /api/integrations` · `POST /api/integrations/test` | Audit, KPIs, integration status (with each setting's source) and tests |
+| `GET /api/aas` | Asset Administration Shell (v3 JSON) of every machine; `?asset=ID` to filter, `?download=1` for a file |
+| `GET/POST /api/maintenance/:workOrderId` | The guided procedure for a work order; POST `{stepId, by}` signs the next step (in order, test run gated on the live limit) |
 | `GET/PUT /api/intelligence` | The four features: on/off (PUT is admin), last sync, headline counts |
 | `GET/PUT /api/intelligence/:feature/config` | A feature's backend configuration and history (PUT is admin) |
 | `GET /api/intelligence/:feature/analytics` | Data for the feature's Analytics page (`enabled: false` while the feature is off) |
@@ -527,9 +544,9 @@ The Compose stack is sized for a demo and a single plant. Each part has a standa
 ## Testing
 
 ```bash
-npm test               # 141 Vitest tests (web app)
+npm test               # 149 Vitest tests (web app)
 npm run test:backend   # 84 pytest tests (intelligence backend)
-npm run build && npm run test:e2e   # 20 Playwright tests against the production server
+npm run build && npm run test:e2e   # 21 Playwright tests against the production server
 cd services/vision && uv run pytest # 16 pytest tests for the Python vision service
 ```
 

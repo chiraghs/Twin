@@ -3,11 +3,13 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Environment, Lightformer, OrbitControls, PerformanceMonitor } from "@react-three/drei";
+import { createXRStore, XR, XROrigin } from "@react-three/xr";
 import * as THREE from "three";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
-import { Bot, Cctv, Crosshair, Eye, Gem, Maximize, Pause, Play, RotateCw, Tag } from "lucide-react";
+import { Activity, AlertTriangle, Bot, Glasses, Smartphone, Cctv, Crosshair, Download, Eye, Gem, Maximize, Pause, Play, RotateCw, Tag } from "lucide-react";
 import type { Highlight } from "@/client/store";
 import { amrFleet } from "@/domain/intralogistics";
+import { activeAlarms, lineFlows, lineOutput } from "@/domain/live";
 import type { FactoryState } from "@/domain/types";
 import { cn } from "@/lib/cn";
 import { machineParts } from "../iso/geometry";
@@ -134,6 +136,23 @@ export function Twin3D({
   const fleet = useMemo(() => amrFleet(state), [state]);
   const paths = useMemo(() => amrPaths(layout, fleet, state.lines.map((l) => l.id)), [layout, fleet, state.lines]);
   const [labels, setLabels] = useState<"smart" | "all">("smart");
+  const [live, setLive] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const flows = useMemo(() => lineFlows(state), [state]);
+  const alarms = useMemo(() => activeAlarms(state), [state]);
+  const plantRef = useRef<THREE.Group | null>(null);
+  // WebXR: one store per view; the buttons only appear where the browser supports a session.
+  const xrStore = useMemo(() => createXRStore({ emulate: false, offerSession: false }), []);
+  const [xr, setXr] = useState<{ vr: boolean; ar: boolean }>({ vr: false, ar: false });
+  useEffect(() => {
+    const nav = typeof navigator !== "undefined" ? (navigator as Navigator & { xr?: { isSessionSupported: (m: string) => Promise<boolean> } }).xr : undefined;
+    if (!nav) return;
+    let alive = true;
+    Promise.all([nav.isSessionSupported("immersive-vr").catch(() => false), nav.isSessionSupported("immersive-ar").catch(() => false)]).then(([vr, ar]) => alive && setXr({ vr, ar }));
+    return () => {
+      alive = false;
+    };
+  }, []);
   const [cameras, setCameras] = useState(true);
   const [robots, setRobots] = useState(true);
   const [spin, setSpin] = useState(false);
@@ -218,18 +237,34 @@ export function Twin3D({
         ),
       });
     }
+    const assetById = new Map(state.assets.map((a) => [a.id, a]));
     for (const pm of layout.machines) {
       const st = pm.m.status;
       const isTarget = highlight?.targetAssetId === pm.m.id;
       const selected = selectedId === pm.m.id;
-      if (!(labels === "all" || st !== "healthy" || selected || isTarget)) continue;
-      const sub = isTarget ? (highlight?.kind === "continue" ? "runs to predicted trip" : highlight?.kind === "baseline" ? "assumed healthy" : "maintenance window") : st === "healthy" ? `health ${pm.m.health.toFixed(0)}` : `${st} · health ${pm.m.health.toFixed(0)}`;
+      if (!(live || labels === "all" || st !== "healthy" || selected || isTarget)) continue;
+      const a = assetById.get(pm.m.id);
+      const liveSub = a ? `${Math.round(a.signal.throughput)} u/h · ${a.signal.vibration.toFixed(1)} mm/s · H ${a.healthScore.toFixed(0)}` : "";
+      const sub = live && !isTarget
+        ? liveSub
+        : isTarget ? (highlight?.kind === "continue" ? "runs to predicted trip" : highlight?.kind === "baseline" ? "assumed healthy" : "maintenance window") : st === "healthy" ? `health ${pm.m.health.toFixed(0)}` : `${st} · health ${pm.m.health.toFixed(0)}`;
       out.push({
         id: pm.m.id,
         at: fixed(P(pm.x, pm.y, machineParts(pm.m.kind).height + 0.9)),
         node: <Chip title={pm.m.id} sub={sub} color={isTarget ? pal.accent : STATUS_COLOR[st]} emphasis={st !== "healthy" || isTarget || selected} pal={pal} />,
       });
     }
+    // End-of-line counters (live data): good units in the last 8 h at each line's last machine.
+    if (live)
+      for (const line of state.lines) {
+        const last = layout.machines.filter((m) => m.lineId === line.id).at(-1);
+        if (!last) continue;
+        out.push({
+          id: `count:${line.id}`,
+          at: fixed(P(last.x + 0.9, last.y + 0.6, 0.7)),
+          node: <Chip title={`${fmtCount(lineOutput(state, line.id))} good`} sub={`${line.name} · last 8 h · ${Math.round((flows[line.id] ?? 0) * 100)}% pace`} color={(flows[line.id] ?? 0) > 0 ? "#22c55e" : "#ef4444"} emphasis pal={pal} />,
+        });
+      }
     for (const t of layout.trucks) {
       if (!(t.atRisk || selectedId === `ord:${t.id}` || labels === "all")) continue;
       out.push({ id: `ord:${t.id}`, at: fixed(P(t.x, t.y, 1.35)), node: <Chip title={t.id} sub={`${Math.round(t.progress * 100)}% loaded${t.atRisk ? " · at risk" : ""}`} color={t.atRisk ? "#ef4444" : "#4c8dff"} emphasis pal={pal} /> });
@@ -255,7 +290,7 @@ export function Twin3D({
         });
       }
     return out;
-  }, [pal, layout, highlight, selectedId, labels, cameras, robots, paths]);
+  }, [pal, layout, highlight, selectedId, labels, cameras, robots, paths, live, state, flows]);
   const anchorsRef = useRef<Anchor[]>([]);
   anchorsRef.current = anchors;
   const labelEls = useRef(new Map<string, HTMLDivElement>());
@@ -280,6 +315,9 @@ export function Twin3D({
         aria-label="3D view of the factory digital twin"
       >
         <PerformanceMonitor onDecline={() => !chosen.current && setQualityState("standard")} />
+        <XR store={xrStore}>
+        {/* In VR/AR the viewer stands at the front edge of the plant floor, facing it. */}
+        <XROrigin position={[center.x, 0, center.z + span * 0.55]} />
         <Scene
           pal={pal}
           quality={quality}
@@ -291,7 +329,11 @@ export function Twin3D({
           affected={affected}
           highlight={highlight}
           registerAmr={registerAmr}
+          flows={flows}
+          plantRef={plantRef}
+          facility={{ id: state.profile.id, name: state.profile.name }}
         />
+        </XR>
         <OrbitControls
           makeDefault
           target={center}
@@ -335,6 +377,21 @@ export function Twin3D({
           { label: "Top view", icon: Eye, onClick: () => setGoal({ target: center.clone(), position: top.clone() }) },
           { label: "Focus the selection", icon: Crosshair, onClick: () => focus(selectedId), disabled: !selectedId },
           { label: spin ? "Stop turntable" : "Turntable", icon: spin ? Pause : RotateCw, onClick: () => setSpin(!spin) },
+          {
+            label: exporting ? "Exporting…" : "Download the 3D model (.glb)",
+            icon: Download,
+            disabled: exporting,
+            onClick: async () => {
+              if (!plantRef.current) return;
+              setExporting(true);
+              try {
+                const { exportPlantGlb } = await import("./export-glb");
+                await exportPlantGlb(plantRef.current, state);
+              } finally {
+                setExporting(false);
+              }
+            },
+          },
         ].map((x) => (
           <Tip key={x.label} content={x.label} side="right">
             <button
@@ -351,6 +408,7 @@ export function Twin3D({
       <div className="absolute bottom-3 left-14 flex flex-wrap gap-1.5">
         {[
           { on: labels === "all", label: labels === "all" ? "All labels" : "Smart labels", icon: Tag, onClick: () => setLabels(labels === "all" ? "smart" : "all") },
+          { on: live, label: "Live data", icon: Activity, onClick: () => setLive(!live) },
           { on: cameras, label: "Cameras", icon: Cctv, onClick: () => setCameras(!cameras) },
           { on: robots, label: "Mobile robots", icon: Bot, onClick: () => setRobots(!robots) },
           { on: quality === "high", label: quality === "high" ? "High quality" : "Standard quality", icon: Gem, onClick: () => chooseQuality(quality === "high" ? "standard" : "high") },
@@ -375,6 +433,45 @@ export function Twin3D({
           </p>
         </div>
       )}
+      {(xr.vr || xr.ar) && (
+        <div className="absolute top-3 left-1/2 flex -translate-x-1/2 gap-1.5" data-testid="xr-buttons">
+          {xr.vr && (
+            <button onClick={() => xrStore.enterVR()} className="flex h-8 items-center gap-1.5 rounded-lg border border-accent/50 bg-accent/12 px-3 text-[12px] font-medium text-accent-ink">
+              <Glasses className="h-3.5 w-3.5" /> View in VR
+            </button>
+          )}
+          {xr.ar && (
+            <button onClick={() => xrStore.enterAR()} className="flex h-8 items-center gap-1.5 rounded-lg border border-accent/50 bg-accent/12 px-3 text-[12px] font-medium text-accent-ink">
+              <Smartphone className="h-3.5 w-3.5" /> View in AR
+            </button>
+          )}
+        </div>
+      )}
+      {alarms.length > 0 && (
+        <div className="absolute top-3 right-3 w-[280px] overflow-hidden rounded-lg border border-critical/40 bg-surface/95 text-[11.5px] shadow-[var(--shadow-card)] backdrop-blur" data-testid="alarm-list">
+          <p className="flex items-center gap-1.5 border-b border-line px-2.5 py-1.5 font-medium text-ink">
+            <AlertTriangle className="h-3.5 w-3.5 text-critical" /> Alarms · {alarms.length}
+          </p>
+          <ul className="max-h-48 overflow-auto">
+            {alarms.slice(0, 8).map((a) => (
+              <li key={a.id}>
+                <button
+                  onClick={() => {
+                    onSelect(a.assetId);
+                    focus(a.assetId);
+                  }}
+                  className="flex w-full items-start gap-2 px-2.5 py-1.5 text-left hover:bg-surface-2"
+                >
+                  <span className={cn("mt-1 h-2 w-2 shrink-0 rounded-full", a.severity === "critical" ? "bg-critical" : "bg-warning")} />
+                  <span className="text-ink-2">
+                    <span className="font-mono text-[10.5px] text-muted">{a.assetId}</span> {a.title}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       <p className="pointer-events-none absolute right-3 bottom-3 hidden text-[10.5px] text-muted sm:block">
         <Play className="mr-1 inline h-2.5 w-2.5" />
         Drag to orbit · right-drag to pan · scroll to zoom · double-click to focus
@@ -385,6 +482,8 @@ export function Twin3D({
 }
 
 /** Double-click anywhere in the view focuses the current selection (the click itself selects first). */
+const fmtCount = (n: number) => n.toLocaleString("en-US");
+
 function DoubleClickFocus({ onFocus }: { onFocus: () => void }) {
   const ref = useRef(onFocus);
   ref.current = onFocus;
@@ -408,6 +507,9 @@ function Scene({
   affected,
   highlight,
   registerAmr,
+  flows,
+  plantRef,
+  facility,
 }: {
   pal: Palette;
   quality: Quality;
@@ -419,6 +521,9 @@ function Scene({
   affected: (lineId: string, id: string) => boolean;
   highlight: Highlight | null;
   registerAmr: (id: string, o: THREE.Object3D | null) => void;
+  flows: Record<string, number>;
+  plantRef: MutableRefObject<THREE.Group | null>;
+  facility: { id: string; name: string };
 }) {
   const b = layout.bounds;
   const cx = (b.x0 + b.x1) / 2;
@@ -455,6 +560,7 @@ function Scene({
         <object3D attach="target" position={P(cx, cy)} />
       </directionalLight>
 
+      <group ref={plantRef} name="TwinPlant" userData={{ twin: { type: "plant", facilityId: facility.id, name: facility.name, unit: "layout unit ≈ 2 m" } }}>
       <Shell layout={layout} mats={mats} quality={quality} onMiss={() => onSelect(null)} />
       {layout.bays.map((bay) => {
         const hot = !!highlight && (highlight.lineIds.includes(bay.id) || highlight.rerouteLineId === bay.id);
@@ -462,7 +568,7 @@ function Scene({
       })}
       {layout.belts.map((bt) => {
         const hot = !!highlight && (highlight.rerouteLineId === bt.lineId || highlight.lineIds.includes(bt.lineId));
-        return <Belt3D key={bt.id} bt={bt} pal={pal} mats={mats} quality={quality} hot={hot} dim={!!highlight && !hot} />;
+        return <Belt3D key={bt.id} bt={bt} pal={pal} mats={mats} quality={quality} hot={hot} dim={!!highlight && !hot} flow={flows[bt.lineId] ?? (bt.running ? 1 : 0)} />;
       })}
       {layout.machines.map((pm) => (
         <Machine3D
@@ -489,6 +595,7 @@ function Scene({
       {paths.map((p, i) => (
         <Amr3D key={p.amr.id} path={p} pal={pal} mats={mats} index={i} selected={selectedId === `amr:${p.amr.id}`} onSelect={() => onSelect(`amr:${p.amr.id}`)} register={registerAmr} />
       ))}
+      </group>
     </>
   );
 }

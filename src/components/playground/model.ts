@@ -144,3 +144,41 @@ export const KIND_SHORT: Record<AssetKind, string> = {
   workstation: "Workstation",
   extruder: "Extruder",
 };
+
+/** How close (floor units) a dragged machine must be to a line's axis or spacing to snap to it. */
+export const ALIGN_RANGE = 0.5;
+
+/**
+ * Snap-to-line: when a machine is dragged near the axis of its line (the row or column its
+ * neighbours sit on), it locks onto that axis; near a neighbour's standard spacing it locks onto
+ * that too. Returns the snapped point and the guide to draw, or the point unchanged.
+ */
+export function alignToLine(layout: Layout, id: string, x: number, y: number): { x: number; y: number; guide: { x1: number; y1: number; x2: number; y2: number } | null } {
+  const self = layout.machines.find((m) => m.m.id === id);
+  if (!self) return { x, y, guide: null };
+  const mates = layout.machines.filter((m) => m.lineId === self.lineId && m.m.id !== id);
+  if (!mates.length) return { x, y, guide: null };
+  let sx = x;
+  let sy = y;
+  let guide: { x1: number; y1: number; x2: number; y2: number } | null = null;
+  const nearestY = mates.reduce((b, m) => (Math.abs(m.y - y) < Math.abs(b.y - y) ? m : b));
+  const nearestX = mates.reduce((b, m) => (Math.abs(m.x - x) < Math.abs(b.x - x) ? m : b));
+  if (Math.abs(nearestY.y - y) <= ALIGN_RANGE) {
+    sy = nearestY.y;
+    const xs = [...mates.filter((m) => m.y === nearestY.y).map((m) => m.x), sx];
+    guide = { x1: Math.min(...xs) - 0.8, y1: sy, x2: Math.max(...xs) + 0.8, y2: sy };
+    // Standard spacing: lock onto one pitch beside the nearest machine on that row.
+    const pitch = Math.min(...mates.filter((m) => m.y === sy).map((m) => Math.abs(m.x - sx)).filter((d) => d > 0.4), Infinity);
+    const ref = mates.filter((m) => m.y === sy).sort((a, b) => Math.abs(a.x - sx) - Math.abs(b.x - sx))[0];
+    const spacing = ROW_PITCH;
+    if (ref && Number.isFinite(pitch) && Math.abs(Math.abs(ref.x - sx) - spacing) <= ALIGN_RANGE) sx = ref.x + Math.sign(sx - ref.x || 1) * spacing;
+  } else if (Math.abs(nearestX.x - x) <= ALIGN_RANGE) {
+    sx = nearestX.x;
+    const ys = [...mates.filter((m) => m.x === nearestX.x).map((m) => m.y), sy];
+    guide = { x1: sx, y1: Math.min(...ys) - 0.8, x2: sx, y2: Math.max(...ys) + 0.8 };
+  }
+  return { x: sx, y: sy, guide };
+}
+
+/** Standard centre-to-centre spacing of machines along a line (matches the automatic layout). */
+export const ROW_PITCH = 2.7;

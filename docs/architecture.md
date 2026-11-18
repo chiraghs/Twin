@@ -318,6 +318,20 @@ provenance, validation and the deterministic compiler are the same code; the hos
 - **Configuration.** `BASETEN_API_KEY`, `BASETEN_MODEL` (default `meta-models/muse-spark-open-1026`), optional `BASETEN_BASE_URL`
   in `.env`. Calls are logged in `ai_calls` as `private: …`.
 
+
+### 7.7 Operating the twin live
+
+`src/domain/live.ts` derives everything the operator views show from the factory state: each line's pace (`lineFlow`: the
+slowest running machine's throughput against its nameplate, 0 when the line is stopped), end-of-line counters (`lineOutput`),
+per-machine signals with alarm and trip limits (`assetSignals`) and the alarm list (`activeAlarms`: open incidents first, then
+live limit breaches). The 3D view uses it for product flow, machine motion and live tags; **Signals & Commissioning** shows the
+signals and sends the existing audited commands (speed setpoint, fault injection, restore).
+
+`src/domain/guided-maintenance.ts` turns a work order into an ordered, signed procedure. Signatures are stored on the work order
+(`workOrders[].steps`, persisted with it in SQLite) and in the audit trail; the test-run step is gated on the live limit.
+`src/domain/aas.ts` exports Asset Administration Shells (metamodel v3 JSON). The 3D view exports the plant as glTF with
+`extras.twin` metadata and offers WebXR sessions through `@react-three/xr`.
+
 ## 8. Twin views, 3D and mobile robots
 
 - **Four views of one state:** Topology (React Flow), Isometric (SVG), Floor plan and **3D** (three.js through React Three Fiber, loaded only when the tab opens). The isometric and 3D views share one layout (`layoutIso`) and one machine-part library (`machineParts`), so they always agree; the 3D view adds orbit, pan, zoom, top view, focus and a turntable, with animated robot arms, belts and robots. Labels are DOM elements positioned by a per-frame projector (one React tree). Without WebGL the tab says so and points to the other views.

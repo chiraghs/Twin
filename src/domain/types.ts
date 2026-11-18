@@ -206,6 +206,8 @@ export interface WorkOrder {
   reason: string;
   cost: number;
   recommendationId?: string;
+  /** Guided maintenance: completed steps (step id → who and when). Absent until the first step is signed. */
+  steps?: Record<string, { by: string; at: string; hour: number }>;
 }
 
 export type Directive =

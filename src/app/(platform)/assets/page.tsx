@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ArrowDown, ArrowUp, Search, SlidersHorizontal } from "lucide-react";
+import { ArrowDown, ArrowUp, FileDown, Search, SlidersHorizontal } from "lucide-react";
 import { useFactory, useUi } from "@/client/store";
 import { AssetPanel } from "@/components/assets/asset-panel";
 import { PageHeader } from "@/components/page";
@@ -78,7 +78,20 @@ export default function AssetsPage() {
 
   return (
     <div className="animate-fade-in">
-      <PageHeader title="Asset Management" description={`${state.assets.length} production assets across ${state.lines.length} lines. Values are live from the twin; select a row for telemetry, history, dependencies and configuration.`} />
+      <PageHeader
+        title="Asset Management"
+        description={`${state.assets.length} production assets across ${state.lines.length} lines. Values are live from the twin; select a row for telemetry, history, dependencies and configuration.`}
+        actions={
+          <a
+            href="/api/aas?download=1"
+            download
+            title="Every machine as an Asset Administration Shell (AAS v3 JSON): nameplate, technical data and live operational data"
+            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-line bg-surface-2 px-3 text-[12.5px] font-medium text-ink hover:bg-surface-3"
+          >
+            <FileDown className="h-3.5 w-3.5" /> Export AAS
+          </a>
+        }
+      />
       <Card>
         <div className="flex flex-wrap items-center gap-2 border-b border-line p-3">
           <div className="relative min-w-[220px] flex-1">

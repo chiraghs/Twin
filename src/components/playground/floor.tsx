@@ -9,7 +9,7 @@ import type { PlaygroundSelection } from "@/client/playground";
 import { amrPose, type AmrPath } from "@/components/three/amr-paths";
 import { FOOTPRINT, type PlacedMachine } from "@/components/iso/model";
 import { cn } from "@/lib/cn";
-import { dropTarget, extents, hitMachine, KIND_SHORT, pinOps, rotOf, snap, type FloorModel } from "./model";
+import { alignToLine, dropTarget, extents, hitMachine, KIND_SHORT, pinOps, rotOf, snap, type FloorModel } from "./model";
 
 /** What the palette puts on the drag: a machine type or a robot fleet. */
 export type PaletteItem = { type: "machine"; archetype: AssetKind } | { type: "fleet"; mission: MobileRobot["mission"]; robotType: MobileRobot["robotType"] };
@@ -20,7 +20,7 @@ const ROBOT_DWELL = 1.6;
 
 type Drag =
   | { kind: "pan"; x0: number; y0: number; cx0: number; cy0: number; moved: boolean }
-  | { kind: "move"; id: string; ox: number; oy: number; x: number; y: number; moved: boolean }
+  | { kind: "move"; id: string; ox: number; oy: number; x: number; y: number; moved: boolean; guide?: { x1: number; y1: number; x2: number; y2: number } | null }
   | { kind: "connect"; from: string; x: number; y: number }
   | null;
 
@@ -133,9 +133,9 @@ export function Floor({
     } else {
       const p = toFloor(e.clientX, e.clientY);
       if (drag.kind === "move") {
-        const x = snap(p.x - drag.ox);
-        const y = snap(p.y - drag.oy);
-        if (x !== drag.x || y !== drag.y) setDrag({ ...drag, x, y, moved: true });
+        // Grid snap, then snap-to-line: lock onto the line's axis and standard spacing when close.
+        const a = alignToLine(layout, drag.id, snap(p.x - drag.ox), snap(p.y - drag.oy));
+        if (a.x !== drag.x || a.y !== drag.y || !!a.guide !== !!drag.guide) setDrag({ ...drag, x: a.x, y: a.y, guide: a.guide, moved: true });
       } else setDrag({ ...drag, x: p.x, y: p.y });
     }
   };
@@ -338,6 +338,19 @@ export function Floor({
             );
           })}
 
+          {moving?.guide && (
+            <line
+              data-testid="snap-guide"
+              x1={moving.guide.x1}
+              y1={moving.guide.y1}
+              x2={moving.guide.x2}
+              y2={moving.guide.y2}
+              stroke="var(--color-accent)"
+              strokeWidth={1.5 * fs}
+              strokeDasharray={`${6 * fs} ${4 * fs}`}
+              pointerEvents="none"
+            />
+          )}
           {connecting && (
             <line
               x1={layout.machines.find((m) => m.m.id === connecting.from)?.x}

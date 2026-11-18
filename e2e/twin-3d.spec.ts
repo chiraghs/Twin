@@ -19,7 +19,8 @@ test("3D twin view: orbitable scene with mobile robots and layer toggles", async
   await expect(page.locator('[data-testid="twin-3d"] canvas')).toBeVisible({ timeout: 60_000 });
   await expect(page.getByTestId("amr-legend")).toContainText("Mobile robots · 3 of 3 active");
   // Labels come from the plant model: the assembly robot with a warning is labelled
-  await expect(page.locator('[data-testid="twin-3d"]').getByText("A-ROB-03")).toBeVisible({ timeout: 60_000 });
+  // (the alarm list may name it too; the label is the first match)
+  await expect(page.locator('[data-testid="twin-3d"]').getByText("A-ROB-03").first()).toBeVisible({ timeout: 60_000 });
   await page.getByRole("button", { name: "Mobile robots" }).click();
   await expect(page.getByTestId("amr-legend")).toHaveCount(0);
   await page.getByRole("button", { name: "Mobile robots" }).click();

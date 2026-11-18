@@ -20,6 +20,8 @@ import {
   ScanSearch,
   SlidersHorizontal,
   LockKeyhole,
+  Cable,
+  HardHat,
 } from "lucide-react";
 
 export const NAV = [
@@ -31,6 +33,8 @@ export const NAV = [
       { href: "/assets", label: "Assets", icon: Boxes },
       { href: "/quality", label: "Visual Quality", icon: ScanEye },
       { href: "/playground", label: "Playground", icon: Shapes },
+      { href: "/commissioning", label: "Signals & Commissioning", icon: Cable },
+      { href: "/guided-maintenance", label: "Guided Maintenance", icon: HardHat },
       { href: "/onboarding", label: "Twin Builder", icon: Wand2 },
     ],
   },
