@@ -1,0 +1,46 @@
+services:
+  # ── 1. Python Intelligence Backend (FastAPI) ──────────────────────────
+  - type: web
+    name: twin-backend
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: .
+    plan: free
+    envVars:
+      - key: PORT
+        value: "8000"
+      - key: TWIN_DATA_DIR
+        value: /tmp
+      - key: MODEL_API_KEY
+        sync: false
+      - key: INTELLIGENCE_BACKEND_TOKEN
+        generateValue: true
+
+  # ── 2. Next.js Web App & 3D Spatial Platform ─────────────────────────
+  - type: web
+    name: twin-web
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: free
+    envVars:
+      - key: PORT
+        value: "3000"
+      - key: TWIN_DEPLOYMENT
+        value: public
+      - key: TWIN_DATA_DIR
+        value: /tmp
+      - key: INTELLIGENCE_BACKEND_URL
+        fromService:
+          type: web
+          name: twin-backend
+          property: host
+      - key: INTELLIGENCE_BACKEND_TOKEN
+        fromService:
+          type: web
+          name: twin-backend
+          envVarKey: INTELLIGENCE_BACKEND_TOKEN
+      - key: MODEL_API_KEY
+        sync: false
+      - key: TWIN_ADMIN_KEY
+        generateValue: true
