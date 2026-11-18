@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { useSearchParams } from "next/navigation";
-import { Bot, Box, Boxes, Cable, Cctv, ChevronDown, Eye, LayoutGrid, Map as MapIcon, Network, Plus, Radio, RotateCcw, ShieldAlert, Truck, X, FlaskConical, Rotate3d } from "lucide-react";
+import { Bot, Box, Boxes, Cable, Cctv, ChevronDown, Eye, LayoutGrid, Map as MapIcon, Network, Plus, Radio, RotateCcw, ShieldAlert, Truck, X, FlaskConical, Rotate3d, Glasses } from "lucide-react";
 import Link from "next/link";
 import { useForecast } from "@/client/hooks";
 import { useFactory, useUi } from "@/client/store";
@@ -28,6 +28,11 @@ import { fmtInt, fmtRelHours } from "@/lib/format";import { MISSION, ROBOT_TYPE 
 const Twin3D = dynamic(() => import("@/components/three/twin-3d").then((m) => m.Twin3D), {
   ssr: false,
   loading: () => <div className="flex h-full items-center justify-center text-[12.5px] text-muted">Loading the 3D view…</div>,
+});
+
+const TwinVR = dynamic(() => import("@/components/three/twin-vr").then((m) => m.TwinVR), {
+  ssr: false,
+  loading: () => <div className="flex h-full items-center justify-center text-[12.5px] text-muted">Loading VR…</div>,
 });
 
 export default function TwinPage() {
@@ -107,6 +112,9 @@ function TwinStudio() {
           <button onClick={() => setView("3d")} aria-pressed={view === "3d"} className={cn("flex h-7 items-center gap-1.5 rounded-md px-2.5 text-[12.5px]", view === "3d" ? "bg-surface-3 text-ink" : "text-muted hover:text-ink")}>
             <Rotate3d className="h-3.5 w-3.5" /> 3D
           </button>
+          <button onClick={() => setView("vr")} aria-pressed={view === "vr"} className={cn("flex h-7 items-center gap-1.5 rounded-md px-2.5 text-[12.5px]", view === "vr" ? "bg-surface-3 text-ink" : "text-muted hover:text-ink")}>
+            <Glasses className="h-3.5 w-3.5" /> VR
+          </button>
         </div>
         {view === "topology" && (
           <>
@@ -165,6 +173,8 @@ function TwinStudio() {
           />
         ) : view === "iso" ? (
           <IsoViewport state={state} highlight={highlight} selectedId={selectedId} onSelect={(id) => selectAsset(id)} orderRisk={orderRisk} />
+        ) : view === "vr" ? (
+          <TwinVR state={state} />
         ) : view === "3d" ? (
           <Twin3D state={state} highlight={highlight} selectedId={selectedId} onSelect={(id) => selectAsset(id)} orderRisk={orderRisk} views />
         ) : (
