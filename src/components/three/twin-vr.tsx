@@ -1,11 +1,14 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Billboard } from "@react-three/drei";
-import { createXRStore, XR, XROrigin, useXR } from "@react-three/xr";
+import { createXRStore, TeleportTarget, XR, XROrigin, useXR, useXRControllerLocomotion } from "@react-three/xr";
 import * as THREE from "three";
 import { Glasses, Move, Smartphone } from "lucide-react";
+import { useAdmin } from "@/client/admin";
+import { api } from "@/client/api";
+import { useFactory, useUi } from "@/client/store";
 import { amrFleet } from "@/domain/intralogistics";
 import { activeAlarms, assetSignals, lineFlows } from "@/domain/live";
 import type { FactoryState } from "@/domain/types";
@@ -58,6 +61,127 @@ function Board({ lines, accent, position, width = 1.5 }: { lines: { text: string
       </mesh>
     </Billboard>
   );
+}
+
+/** Draws text lines to a canvas texture (shared by boards and buttons). */
+function textTexture(lines: { text: string; color?: string; font?: string }[], w: number, h: number, bg: string, border?: string) {
+  const c = document.createElement("canvas");
+  c.width = w;
+  c.height = h;
+  const g = c.getContext("2d")!;
+  g.fillStyle = bg;
+  g.beginPath();
+  g.roundRect(0, 0, w, h, Math.min(24, h / 3));
+  g.fill();
+  if (border) {
+    g.strokeStyle = border;
+    g.lineWidth = 6;
+    g.stroke();
+  }
+  g.textAlign = "center";
+  g.textBaseline = "middle";
+  lines.forEach((l, i) => {
+    g.font = l.font ?? "600 34px system-ui, sans-serif";
+    g.fillStyle = l.color ?? "#e5e7eb";
+    g.fillText(l.text, w / 2, (h * (i + 1)) / (lines.length + 1));
+  });
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
+/** A 3D button: point with a hand or controller and pinch / pull the trigger (or click on screen). */
+function Button3D({ label, color, position, width = 0.62, disabled, onPress }: { label: string; color: string; position: [number, number, number]; width?: number; disabled?: boolean; onPress: () => void }) {
+  const [hover, setHover] = useState(false);
+  const tex = useMemo(() => textTexture([{ text: label, color: disabled ? "#64748b" : "#f8fafc" }], 384, 128, disabled ? "rgba(30,41,59,0.9)" : hover ? color : "rgba(15,23,42,0.95)", disabled ? undefined : color), [label, color, hover, disabled]);
+  useEffect(() => () => tex.dispose(), [tex]);
+  return (
+    <mesh
+      position={position}
+      scale={hover && !disabled ? 1.06 : 1}
+      onPointerOver={(e) => {
+        e.stopPropagation();
+        setHover(true);
+      }}
+      onPointerOut={() => setHover(false)}
+      onClick={(e) => {
+        e.stopPropagation();
+        if (!disabled) onPress();
+      }}
+    >
+      <planeGeometry args={[width, width / 3]} />
+      <meshBasicMaterial map={tex} transparent toneMapped={false} />
+    </mesh>
+  );
+}
+
+/**
+ * The control panel that floats beside a selected machine: change its speed, trip it, restore it
+ * and acknowledge its alarm. Uses the same audited commands as Signals & Commissioning; twin only.
+ */
+function ControlPanel({ state, assetId, position }: { state: FactoryState; assetId: string; position: [number, number, number] }) {
+  const admin = useAdmin((s) => s.admin);
+  const loaded = useAdmin((s) => s.loaded);
+  const loadAdmin = useAdmin((s) => s.load);
+  const apply = useFactory((s) => s.apply);
+  const operator = useUi((s) => s.operator);
+  const [note, setNote] = useState<{ text: string; ok: boolean } | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (!loaded) void loadAdmin();
+  }, [loaded, loadAdmin]);
+  const a = state.assets.find((x) => x.id === assetId);
+  const incident = state.incidents.find((i) => i.assetId === assetId && i.status === "open");
+  const noteTex = useMemo(
+    () => textTexture([{ text: note?.text ?? (admin ? `Speed ${a?.speedPct ?? 0}% · ${a?.mode ?? ""}` : "Admin needed to change machines"), color: note ? (note.ok ? "#4ade80" : "#f87171") : "#94a3b8", font: "28px system-ui, sans-serif" }], 768, 96, "rgba(10,14,24,0.85)"),
+    [note, admin, a?.speedPct, a?.mode],
+  );
+  useEffect(() => () => noteTex.dispose(), [noteTex]);
+  if (!a) return null;
+  const run = async (label: string, fn: () => Promise<FactoryState>) => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      apply(await fn());
+      setNote({ text: label, ok: true });
+    } catch (e) {
+      setNote({ text: e instanceof Error ? e.message.slice(0, 48) : "Failed", ok: false });
+    } finally {
+      setBusy(false);
+    }
+  };
+  const speed = (d: number) => {
+    const v = Math.max(30, Math.min(110, a.speedPct + d));
+    return run(`Speed set to ${v}%`, async () => (await api<{ state: FactoryState }>(`/api/assets/${a.id}`, { method: "PATCH", body: { speedPct: v } })).state);
+  };
+  const fault = (mode: "failure" | "restore", label: string) => run(label, () => api<FactoryState>("/api/faults", { body: { assetId: a.id, mode, severity: mode === "failure" ? 100 : 0 } }));
+  const off = !admin || busy;
+  const running = a.mode === "running";
+  return (
+    <Billboard position={position}>
+      <mesh position={[0, 0.48, -0.01]}>
+        <planeGeometry args={[2.0, 0.25]} />
+        <meshBasicMaterial map={noteTex} transparent toneMapped={false} />
+      </mesh>
+      <Button3D label="Speed −10%" color="#3b82f6" position={[-0.66, 0.2, 0]} disabled={off || a.speedPct <= 30} onPress={() => void speed(-10)} />
+      <Button3D label="Speed +10%" color="#3b82f6" position={[0, 0.2, 0]} disabled={off || a.speedPct >= 110} onPress={() => void speed(10)} />
+      <Button3D label={running ? "Trip" : "Restore"} color={running ? "#ef4444" : "#22c55e"} position={[0.66, 0.2, 0]} disabled={off} onPress={() => void (running ? fault("failure", `${a.id} tripped`) : fault("restore", `${a.id} restored`))} />
+      <Button3D
+        label={incident ? "Acknowledge alarm" : "No open alarm"}
+        color="#f59e0b"
+        width={1.3}
+        position={[0, -0.06, 0]}
+        disabled={off || !incident}
+        onPress={() => incident && void run(`${incident.id} acknowledged`, async () => (await api<{ state: FactoryState }>(`/api/incidents/${incident.id}/ack`, { body: { by: operator } })).state)}
+      />
+    </Billboard>
+  );
+}
+
+/** Thumbsticks in the headset: left to move, right to snap-turn. */
+function Locomotion({ origin }: { origin: RefObject<THREE.Group | null> }) {
+  useXRControllerLocomotion(origin, { speed: 2.2 }, { type: "snap", degrees: 45 });
+  return null;
 }
 
 /**
@@ -167,10 +291,13 @@ export function TwinVR({ state }: { state: FactoryState }) {
           headset: { position: [0, 1.7, 0], rotation: [0.28, 0, 0] },
           controller: { left: { position: [-0.32, -0.42, -0.45] }, right: { position: [0.32, -0.42, -0.45] } },
         },
+        controller: { teleportPointer: true },
+        hand: { teleportPointer: true },
         offerSession: false,
       }), []);
   const [support, setSupport] = useState<{ vr: boolean; ar: boolean } | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
+  const originRef = useRef<THREE.Group>(null);
   const plantRef = useRef<THREE.Group | null>(null);
 
   useEffect(() => {
@@ -204,6 +331,7 @@ export function TwinVR({ state }: { state: FactoryState }) {
   const front = useMemo(() => new THREE.Vector3(center.x, 0, center.z + span * 0.3), [center, span]);
   const eye = useMemo(() => front.clone().add(new THREE.Vector3(0, EYE, 0)), [front]);
   const lookAt = useMemo(() => center.clone().add(new THREE.Vector3(0, 0.6, 0)), [center]);
+  const originPos = useMemo(() => front.toArray() as [number, number, number], [front]);
   const walkBounds = useMemo(() => ({ x0: b.x0 - 0.5, x1: b.x1 + 0.5, z0: b.y0 - 0.5, z1: b.y1 + 3 }), [b.x0, b.x1, b.y0, b.y1]);
   const headset = !!support && (support.vr || support.ar);
 
@@ -218,7 +346,7 @@ export function TwinVR({ state }: { state: FactoryState }) {
       const sig = assetSignals(state, a).filter((s) => ["Running", "Throughput", "Vibration", "Temperature", "Health"].includes(s.name));
       const lines = [
         { text: `${a.id} · ${a.name}`, tone: "title" as const },
-        ...(alarm ? [{ text: alarm.title.slice(0, 34), tone: alarm.severity === "critical" ? ("bad" as const) : ("warn" as const) }] : []),
+        ...(alarm ? [{ text: `${alarm.acknowledged ? "ACK · " : ""}${alarm.title}`.slice(0, 36), tone: alarm.acknowledged ? ("muted" as const) : alarm.severity === "critical" ? ("bad" as const) : ("warn" as const) }] : []),
         ...(id === selected
           ? sig.map((s) => ({
               text: `${s.name}: ${typeof s.value === "number" ? (Math.abs(s.value) >= 100 ? s.value.toFixed(0) : s.value.toFixed(1)) : s.value ? "yes" : "no"} ${s.unit}`,
@@ -230,12 +358,26 @@ export function TwinVR({ state }: { state: FactoryState }) {
     });
   }, [state, layout, selected]);
 
+  const selectedPos = useMemo<[number, number, number] | null>(() => {
+    const pm = selected ? layout.machines.find((m) => m.m.id === selected) : null;
+    // Beside the machine, at chest height, on the side facing the front of the plant.
+    return pm ? (P(pm.x, pm.y + 1.6, 1.0) as [number, number, number]) : null;
+  }, [selected, layout]);
+
   if (!pal) return <div className="h-full w-full" />;
   return (
     <div className="relative h-full w-full" data-testid="twin-vr">
       <Canvas camera={{ fov: 70, near: 0.05, far: 400, position: eye.toArray() }} onCreated={({ gl }) => void (gl.toneMapping = THREE.ACESFilmicToneMapping)} aria-label="The plant in VR">
         <XR store={store}>
-          <XROrigin position={front.toArray()} />
+          <XROrigin ref={originRef} position={originPos} />
+          <Locomotion origin={originRef} />
+          {/* Teleport: push a thumbstick forward (or pinch-and-hold with hands), aim at the floor, release. */}
+          <TeleportTarget onTeleport={(p) => originRef.current?.position.set(p.x, 0, p.z)}>
+            <mesh rotation-x={-Math.PI / 2} position={[center.x, 0.002, center.z]}>
+              <planeGeometry args={[(b.x1 - b.x0) + 2, (b.y1 - b.y0) + 6]} />
+              <meshBasicMaterial transparent opacity={0} depthWrite={false} />
+            </mesh>
+          </TeleportTarget>
           <WalkControls eye={eye} target={lookAt} bounds={walkBounds} />
           <Scene
             pal={pal}
@@ -255,17 +397,18 @@ export function TwinVR({ state }: { state: FactoryState }) {
           {boards.map((bd) => (
             <Board key={bd.id} lines={bd.lines} accent={bd.accent} position={bd.position} width={2.2} />
           ))}
+          {selectedPos && selected && <ControlPanel state={state} assetId={selected} position={selectedPos} />}
         </XR>
       </Canvas>
       <div className="absolute top-3 left-3 max-w-[340px] rounded-lg border border-line bg-surface/90 px-3 py-2 text-[12px] shadow-[var(--shadow-card)] backdrop-blur">
         <p className="font-medium text-ink">Walk the plant in VR</p>
         <p className="mt-0.5 leading-snug text-muted">
-          In a headset, point at a machine with your hand (pinch) or controller (trigger) to see its live signals; machines with alarms always show theirs.
+          In a headset: left thumbstick to move, right to turn, push a stick forward and aim at the floor to teleport. Point at a machine and pinch / pull the trigger to select it: its live signals and a control panel (speed, trip / restore, acknowledge alarm) appear beside it.
         </p>
         <p className="mt-1.5 flex items-start gap-1.5 leading-snug text-ink-2" data-testid="walk-help">
           <Move className="mt-0.5 h-3.5 w-3.5 shrink-0 text-accent" />
           <span>
-            On screen: <b>drag</b> to look around, <b>W A S D</b> or <b>arrow keys</b> to walk (<b>Shift</b> to go faster), <b>click</b> a machine for its live board.
+            On screen: <b>drag</b> to look around, <b>W A S D</b> or <b>arrow keys</b> to walk (<b>Shift</b> to go faster), <b>click</b> a machine for its live board and control panel.
           </span>
         </p>
       </div>

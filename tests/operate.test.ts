@@ -112,4 +112,16 @@ describe("snap-to-line in the playground", () => {
     const far = alignToLine(layout, pm.m.id, pm.x, pm.y + 3);
     expect(far.y).toBe(pm.y + 3);
   });
+
+  it("acknowledges an open incident once, audited, and the alarm shows it", async () => {
+    const { acknowledgeIncident } = await import("@/domain/commands");
+    const { activeAlarms } = await import("@/domain/live");
+    const s = crisis();
+    const inc = s.incidents.find((i) => i.status === "open")!;
+    acknowledgeIncident(s, inc.id, "QA", NOW);
+    expect(s.incidents.find((i) => i.id === inc.id)!.status).toBe("investigating");
+    expect(s.audit.some((e) => /acknowledged by QA/.test(e.title) && e.refs.incidentId === inc.id)).toBe(true);
+    expect(activeAlarms(s).find((a) => a.id === inc.id)!.acknowledged).toBe(true);
+    expect(() => acknowledgeIncident(s, inc.id, "QA", NOW)).toThrow(/already investigating/);
+  });
 });

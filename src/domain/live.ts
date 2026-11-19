@@ -80,6 +80,8 @@ export interface LiveAlarm {
   /** Plant hour the alarm started (open incident) or now (live limit breach). */
   sinceHour: number;
   source: "incident" | "limit";
+  /** Incident alarms: someone has acknowledged it (status past "open"). */
+  acknowledged?: boolean;
 }
 
 /** Open incidents first, then machines currently above an alarm limit without an incident. */
@@ -89,7 +91,7 @@ export function activeAlarms(state: FactoryState): LiveAlarm[] {
   for (const i of state.incidents) {
     if (i.status === "resolved") continue;
     covered.add(i.assetId);
-    out.push({ id: i.id, assetId: i.assetId, severity: i.severity, title: i.title, sinceHour: i.openedHour, source: "incident" });
+    out.push({ id: i.id, assetId: i.assetId, severity: i.severity, title: i.title, sinceHour: i.openedHour, source: "incident", acknowledged: i.status !== "open" });
   }
   for (const a of state.assets) {
     if (covered.has(a.id)) continue;

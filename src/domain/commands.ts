@@ -259,3 +259,23 @@ export function setLiveTelemetry(state: FactoryState, enabled: boolean, nowISO: 
     refs: {},
   });
 }
+
+/**
+ * Acknowledge an open incident (alarm): someone has seen it and is on it. Moves it from "open" to
+ * "investigating" and records who acknowledged it. The incident stays active until resolved.
+ */
+export function acknowledgeIncident(state: FactoryState, incidentId: string, by: string, nowISO: string) {
+  const inc = state.incidents.find((i) => i.id === incidentId);
+  if (!inc) throw new DomainError(`Incident ${incidentId} not found`, 404);
+  if (inc.status !== "open") throw new DomainError(`${inc.id} is already ${inc.status}`, 409);
+  inc.status = "investigating";
+  appendAudit(state, nowISO, {
+    category: "state-change",
+    actor: by,
+    title: `${inc.id} acknowledged by ${by}`,
+    detail: `${inc.title}. Status: open → investigating.`,
+    severity: "info",
+    refs: { assetIds: [inc.assetId], incidentId: inc.id },
+  });
+  return inc;
+}
