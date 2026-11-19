@@ -2,9 +2,19 @@ import "server-only";
 import { isServerless } from "@/server/runtime";
 import { setting } from "@/server/settings";
 
+/**
+ * Accept a full URL, or a bare host / host:port (Render's `fromService: property: host` gives just an
+ * internal hostname): add http:// and, without a port, the backend's default port 8000.
+ */
+export function normalizeBackendUrl(raw: string): string {
+  const v = raw.trim().replace(/\/+$/, "");
+  if (!v || /^https?:\/\//i.test(v)) return v;
+  return /:\d+$/.test(v) ? `http://${v}` : `http://${v}:8000`;
+}
+
 /** The Python intelligence backend (FastAPI): URL from Integrations, the environment, or localhost in development. */
 export const intelligenceBackend = {
-  url: () => (setting("INTELLIGENCE_BACKEND_URL") || process.env.INTELLIGENCE_BACKEND_URL || (isServerless() ? "" : "http://localhost:8000")).replace(/\/+$/, ""),
+  url: () => normalizeBackendUrl(setting("INTELLIGENCE_BACKEND_URL") || process.env.INTELLIGENCE_BACKEND_URL || (isServerless() ? "" : "http://localhost:8000")),
   configured: () => !!intelligenceBackend.url(),
 };
 

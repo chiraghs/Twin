@@ -30,11 +30,9 @@ services:
         value: public
       - key: TWIN_DATA_DIR
         value: /tmp
+      # The backend's public URL (free services may not accept private-network traffic).
       - key: INTELLIGENCE_BACKEND_URL
-        fromService:
-          type: web
-          name: twin-backend
-          property: host
+        value: https://twin-backend-a1v2.onrender.com
       - key: INTELLIGENCE_BACKEND_TOKEN
         fromService:
           type: web
