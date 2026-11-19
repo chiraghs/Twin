@@ -1,11 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Canvas, useThree } from "@react-three/fiber";
+import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Billboard } from "@react-three/drei";
 import { createXRStore, XR, XROrigin, useXR } from "@react-three/xr";
 import * as THREE from "three";
-import { Glasses, Smartphone } from "lucide-react";
+import { Glasses, Move, Smartphone } from "lucide-react";
 import { amrFleet } from "@/domain/intralogistics";
 import { activeAlarms, assetSignals, lineFlows } from "@/domain/live";
 import type { FactoryState } from "@/domain/types";
@@ -60,16 +60,93 @@ function Board({ lines, accent, position, width = 1.5 }: { lines: { text: string
   );
 }
 
-/** Before entering VR, look at the plant from where you'll stand: the front edge, at eye height. */
-function StandingView({ eye, target }: { eye: THREE.Vector3; target: THREE.Vector3 }) {
+/**
+ * On-screen walking when no headset is in use: drag to look around, W A S D or the arrow keys to
+ * walk (Shift to go faster). You stay at eye height and inside the plant walls.
+ */
+function WalkControls({ eye, target, bounds }: { eye: THREE.Vector3; target: THREE.Vector3; bounds: { x0: number; x1: number; z0: number; z1: number } }) {
   const camera = useThree((s) => s.camera);
+  const gl = useThree((s) => s.gl);
   const session = useXR((s) => s.session);
+  const yaw = useRef(0);
+  const pitch = useRef(0);
+  const keys = useRef(new Set<string>());
+  useEffect(() => {
+    camera.position.copy(eye);
+    const d = target.clone().sub(eye);
+    yaw.current = Math.atan2(-d.x, -d.z);
+    pitch.current = Math.atan2(d.y, Math.hypot(d.x, d.z));
+  }, [camera, eye, target]);
   useEffect(() => {
     if (session) return;
-    camera.position.copy(eye);
-    camera.lookAt(target);
-  }, [camera, eye, target, session]);
+    const el = gl.domElement;
+    let last: { x: number; y: number } | null = null;
+    const down = (e: PointerEvent) => void (last = { x: e.clientX, y: e.clientY });
+    const move = (e: PointerEvent) => {
+      if (!last) return;
+      yaw.current -= (e.clientX - last.x) * 0.005;
+      pitch.current = Math.max(-1.3, Math.min(1.3, pitch.current - (e.clientY - last.y) * 0.005));
+      last = { x: e.clientX, y: e.clientY };
+    };
+    const up = () => void (last = null);
+    const typing = (e: KeyboardEvent) => e.target instanceof HTMLElement && (e.target.closest("input, textarea, select, [contenteditable]") !== null);
+    const kd = (e: KeyboardEvent) => {
+      if (typing(e)) return;
+      if (["KeyW", "KeyA", "KeyS", "KeyD", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "ShiftLeft", "ShiftRight"].includes(e.code)) {
+        keys.current.add(e.code);
+        if (e.code.startsWith("Arrow")) e.preventDefault();
+      }
+    };
+    const ku = (e: KeyboardEvent) => keys.current.delete(e.code);
+    const blur = () => keys.current.clear();
+    el.addEventListener("pointerdown", down);
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("keydown", kd);
+    window.addEventListener("keyup", ku);
+    window.addEventListener("blur", blur);
+    return () => {
+      el.removeEventListener("pointerdown", down);
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("keydown", kd);
+      window.removeEventListener("keyup", ku);
+      window.removeEventListener("blur", blur);
+    };
+  }, [gl, session]);
+  useFrame((_, dt) => {
+    if (session) return;
+    const k = keys.current;
+    const f = (k.has("KeyW") || k.has("ArrowUp") ? 1 : 0) - (k.has("KeyS") || k.has("ArrowDown") ? 1 : 0);
+    const r = (k.has("KeyD") || k.has("ArrowRight") ? 1 : 0) - (k.has("KeyA") || k.has("ArrowLeft") ? 1 : 0);
+    const speed = (k.has("ShiftLeft") || k.has("ShiftRight") ? 6 : 2.5) * Math.min(dt, 0.1);
+    const sy = Math.sin(yaw.current);
+    const cy = Math.cos(yaw.current);
+    camera.position.x = Math.max(bounds.x0, Math.min(bounds.x1, camera.position.x + (-sy * f + cy * r) * speed));
+    camera.position.z = Math.max(bounds.z0, Math.min(bounds.z1, camera.position.z + (-cy * f - sy * r) * speed));
+    camera.position.y = EYE;
+    camera.rotation.order = "YXZ";
+    camera.rotation.set(pitch.current, yaw.current, 0);
+  });
   return null;
+}
+
+const SIM_KEY = "twin-vr-simulate";
+const isLocalhost = () => typeof window !== "undefined" && ["localhost", "127.0.0.1"].includes(window.location.hostname);
+/**
+ * Development only (localhost): desktop Chrome reports WebXR but has no headset, so the Quest
+ * emulator stands aside. With "Simulate Quest headset" on, that empty runtime is hidden for this
+ * tab so the emulator can install. Never active on a real deployment.
+ */
+function simulationOn(): boolean {
+  if (!isLocalhost()) return false;
+  try {
+    if (sessionStorage.getItem(SIM_KEY) !== "1") return false;
+  } catch {
+    return false;
+  }
+  Object.defineProperty(Navigator.prototype, "xr", { get: () => undefined, configurable: true });
+  return true;
 }
 
 /**
@@ -81,6 +158,7 @@ function StandingView({ eye, target }: { eye: THREE.Vector3; target: THREE.Vecto
 export function TwinVR({ state }: { state: FactoryState }) {
   const pal = usePalette();
   // On localhost without WebXR, emulate a Meta Quest 3 (stereo, no synthetic room) for development.
+  const [simulating] = useState(() => simulationOn());
   const store = useMemo(() => createXRStore({
         emulate: {
           type: "metaQuest3",
@@ -126,6 +204,8 @@ export function TwinVR({ state }: { state: FactoryState }) {
   const front = useMemo(() => new THREE.Vector3(center.x, 0, center.z + span * 0.3), [center, span]);
   const eye = useMemo(() => front.clone().add(new THREE.Vector3(0, EYE, 0)), [front]);
   const lookAt = useMemo(() => center.clone().add(new THREE.Vector3(0, 0.6, 0)), [center]);
+  const walkBounds = useMemo(() => ({ x0: b.x0 - 0.5, x1: b.x1 + 0.5, z0: b.y0 - 0.5, z1: b.y1 + 3 }), [b.x0, b.x1, b.y0, b.y1]);
+  const headset = !!support && (support.vr || support.ar);
 
   const boards = useMemo(() => {
     const alarmed = new Map(activeAlarms(state).map((a) => [a.assetId, a]));
@@ -156,7 +236,7 @@ export function TwinVR({ state }: { state: FactoryState }) {
       <Canvas camera={{ fov: 70, near: 0.05, far: 400, position: eye.toArray() }} onCreated={({ gl }) => void (gl.toneMapping = THREE.ACESFilmicToneMapping)} aria-label="The plant in VR">
         <XR store={store}>
           <XROrigin position={front.toArray()} />
-          <StandingView eye={eye} target={lookAt} />
+          <WalkControls eye={eye} target={lookAt} bounds={walkBounds} />
           <Scene
             pal={pal}
             quality="standard"
@@ -180,7 +260,13 @@ export function TwinVR({ state }: { state: FactoryState }) {
       <div className="absolute top-3 left-3 max-w-[340px] rounded-lg border border-line bg-surface/90 px-3 py-2 text-[12px] shadow-[var(--shadow-card)] backdrop-blur">
         <p className="font-medium text-ink">Walk the plant in VR</p>
         <p className="mt-0.5 leading-snug text-muted">
-          You stand at the front of the plant floor. Point at a machine with your hand (pinch) or controller (trigger) to see its live signals; machines with alarms always show theirs.
+          In a headset, point at a machine with your hand (pinch) or controller (trigger) to see its live signals; machines with alarms always show theirs.
+        </p>
+        <p className="mt-1.5 flex items-start gap-1.5 leading-snug text-ink-2" data-testid="walk-help">
+          <Move className="mt-0.5 h-3.5 w-3.5 shrink-0 text-accent" />
+          <span>
+            On screen: <b>drag</b> to look around, <b>W A S D</b> or <b>arrow keys</b> to walk (<b>Shift</b> to go faster), <b>click</b> a machine for its live board.
+          </span>
         </p>
       </div>
       <div className="absolute bottom-4 left-1/2 flex -translate-x-1/2 gap-2" data-testid="vr-buttons">
@@ -199,8 +285,27 @@ export function TwinVR({ state }: { state: FactoryState }) {
           <Smartphone className="h-4 w-4" /> Enter passthrough AR
         </button>
       </div>
-      {support && !support.vr && !support.ar && (
-        <p className="absolute bottom-16 left-1/2 -translate-x-1/2 rounded-md bg-surface/90 px-3 py-1 text-[11.5px] text-muted">Open this page in Meta Quest Browser (or another WebXR browser) to enter VR.</p>
+      {support && !headset && (
+        <p className="absolute bottom-16 left-1/2 -translate-x-1/2 rounded-md bg-surface/90 px-3 py-1 text-center text-[11.5px] text-muted">
+          No headset found, so you&apos;re walking on screen. To enter VR, open this page in Meta Quest Browser.
+        </p>
+      )}
+      {isLocalhost() && (support !== null || simulating) && (!headset || simulating) && (
+        <button
+          onClick={() => {
+            try {
+              if (simulating) sessionStorage.removeItem(SIM_KEY);
+              else sessionStorage.setItem(SIM_KEY, "1");
+            } catch {
+              /* storage off: nothing to toggle */
+            }
+            window.location.reload();
+          }}
+          className="absolute right-3 bottom-4 h-8 rounded-lg border border-dashed border-line bg-surface/90 px-3 text-[11.5px] text-muted hover:text-ink"
+          data-testid="simulate-headset"
+        >
+          {simulating ? "Stop simulating the headset" : "Simulate Quest headset (localhost)"}
+        </button>
       )}
     </div>
   );
