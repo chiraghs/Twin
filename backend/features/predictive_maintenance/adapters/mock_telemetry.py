@@ -1,4 +1,6 @@
 """Mock telemetry reader adapter for local testing and offline simulation."""
+from typing import Any
+
 from backend.features.predictive_maintenance.ports.contracts import ITelemetryReader
 
 

@@ -1,5 +1,7 @@
 """Ports for supply chain intelligence."""
 from abc import ABC, abstractmethod
+from typing import Any
+
 from backend.core.interfaces.base import IInputPort, IOutputPort
 from backend.features.supply_chain_intelligence.domain.models import (
     PartStockRisk,

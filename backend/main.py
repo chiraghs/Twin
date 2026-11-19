@@ -1,6 +1,7 @@
 """Twin Enterprise Backend - Main Application Entrypoint."""
 import hmac
 import os
+from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware

@@ -1,5 +1,7 @@
 """Ports for waste reduction domain."""
 from abc import ABC, abstractmethod
+from typing import Any
+
 from backend.core.interfaces.base import IInputPort, IOutputPort
 from backend.features.waste_reduction.domain.models import (
     ScrapAttributionReport,
