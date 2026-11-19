@@ -39,15 +39,22 @@ export function FieldSignals({ state, asset }: { state: FactoryState; asset: Ass
   const [mb, setMb] = useState({ host: "127.0.0.1", port: 5021, unit: 1, table: "holding" as "holding" | "input" | "coil", register: 0, scale: 1 });
 
   const loadLinks = useCallback(async () => setLinks((await api<{ links: SignalLink[] }>("/api/signal-links")).links), []);
+  const [checking, setChecking] = useState(false);
+  const connect = useCallback(async () => {
+    setChecking(true);
+    try {
+      setPlc(await bk<PlcStatus>("api/v1/field/plc"));
+      setBackendError(null);
+    } catch (e) {
+      setBackendError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setChecking(false);
+    }
+  }, []);
   useEffect(() => {
     void loadLinks();
-    bk<PlcStatus>("api/v1/field/plc")
-      .then((p) => {
-        setPlc(p);
-        setBackendError(null);
-      })
-      .catch((e) => setBackendError(e instanceof Error ? e.message : String(e)));
-  }, [loadLinks]);
+    void connect();
+  }, [loadLinks, connect]);
 
   // Keep the simulated PLC following the twin.
   useEffect(() => {
@@ -138,9 +145,12 @@ export function FieldSignals({ state, asset }: { state: FactoryState; asset: Ass
       <CardBody className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)]">
         <div className="min-w-0 space-y-2 text-[12px]">
           {backendError && (
-            <p className="rounded-md border border-warning/40 bg-warning/10 px-2 py-1.5 text-ink-2">
-              Field connectors run in the Python backend, which isn&apos;t reachable: {backendError}
-            </p>
+            <div className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning/10 px-2 py-1.5 text-ink-2" data-testid="backend-unreachable">
+              <p className="min-w-0 flex-1">Field connectors run in the Python backend, which isn&apos;t reachable: {backendError}</p>
+              <Button size="xs" variant="secondary" loading={checking} onClick={() => void connect()}>
+                Retry
+              </Button>
+            </div>
           )}
           <div className="flex gap-1.5">
             <Select aria-label="Protocol" value={protocol} onChange={(e) => setProtocol(e.target.value as FieldProtocol)}>

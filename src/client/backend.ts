@@ -15,7 +15,14 @@ export async function bk<T>(path: string, init?: RequestInit & { json?: unknown 
   try {
     data = text ? JSON.parse(text) : null;
   } catch {
-    data = { error: text.slice(0, 300) };
+    // A gateway's HTML error page (e.g. a sleeping free-tier host answering 502): say what it means.
+    data = {
+      error: /^\s*</.test(text)
+        ? res.status === 502 || res.status === 503 || res.status === 504
+          ? `The intelligence backend is starting up or unavailable (HTTP ${res.status}). Free hosting sleeps when idle; try again in a minute.`
+          : `The intelligence backend returned HTTP ${res.status}.`
+        : text.slice(0, 300),
+    };
   }
   if (!res.ok) {
     const d = data as { error?: string; detail?: unknown } | null;
