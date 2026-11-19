@@ -6,7 +6,7 @@ import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Billboard } from "@react-three/drei";
 import { createXRStore, TeleportTarget, XR, XROrigin, useXR, useXRControllerLocomotion } from "@react-three/xr";
 import * as THREE from "three";
-import { Glasses, LogOut, Move, Smartphone } from "lucide-react";
+import { Glasses, LogOut, Move, Search, Smartphone } from "lucide-react";
 import { useAdmin } from "@/client/admin";
 import { api } from "@/client/api";
 import { useFactory, useUi } from "@/client/store";
@@ -19,6 +19,7 @@ import { amrPaths } from "./amr-paths";
 import { usePalette } from "./palette";
 import { P } from "./scene";
 import { Scene } from "./twin-3d";
+import { FIND_KIND_LABEL, findEntries, findIndex, standPoint, type FindEntry, type FindKind } from "./vr-search";
 
 const EYE = 1.6; // standing eye height, layout units ≈ m in the 3D scene
 
@@ -189,7 +190,45 @@ function Locomotion({ origin }: { origin: RefObject<THREE.Group | null> }) {
  * On-screen walking when no headset is in use: drag to look around, W A S D or the arrow keys to
  * walk (Shift to go faster). You stay at eye height and inside the plant walls.
  */
-function WalkControls({ eye, target, bounds }: { eye: THREE.Vector3; target: THREE.Vector3; bounds: { x0: number; x1: number; z0: number; z1: number } }) {
+/**
+ * Find, in the headset: typing is impractical in VR, so pick a category, then an item (6 per page).
+ * Choosing an item teleports you in front of it.
+ */
+function FindMenu({ index, onPick, onClose }: { index: FindEntry[]; onPick: (e: FindEntry) => void; onClose: () => void }) {
+  const [kind, setKind] = useState<FindKind | null>(null);
+  const [page, setPage] = useState(0);
+  const kinds = (Object.keys(FIND_KIND_LABEL) as FindKind[]).filter((k) => index.some((e) => e.kind === k));
+  const items = kind ? index.filter((e) => e.kind === kind) : [];
+  const per = 6;
+  const pages = Math.max(1, Math.ceil(items.length / per));
+  const shown = items.slice(page * per, page * per + per);
+  const short = (t: string) => (t.length > 26 ? `${t.slice(0, 25)}…` : t);
+  return (
+    <group position={[0, 1.35, -1.1]}>
+      {!kind ? (
+        <>
+          {kinds.map((k, i) => (
+            <Button3D key={k} label={`${FIND_KIND_LABEL[k]} (${index.filter((e) => e.kind === k).length})`} color="#4c8dff" width={0.9} position={[i % 2 ? 0.48 : -0.48, 0.3 - Math.floor(i / 2) * 0.33, 0]} onPress={() => (setKind(k), setPage(0))} />
+          ))}
+          <Button3D label="Close" color="#64748b" width={0.5} position={[0, 0.3 - Math.ceil(kinds.length / 2) * 0.33, 0]} onPress={onClose} />
+        </>
+      ) : (
+        <>
+          {shown.map((e, i) => (
+            <Button3D key={e.key} label={short(e.label)} color="#22c55e" width={0.9} position={[i % 2 ? 0.48 : -0.48, 0.3 - Math.floor(i / 2) * 0.33, 0]} onPress={() => onPick(e)} />
+          ))}
+          <Button3D label="‹ Back" color="#64748b" width={0.45} position={[-0.62, -0.7, 0]} onPress={() => setKind(null)} />
+          <Button3D label={`Page ${page + 1}/${pages}`} color="#64748b" width={0.5} position={[0, -0.7, 0]} disabled={pages < 2} onPress={() => setPage((page + 1) % pages)} />
+          <Button3D label="Close" color="#64748b" width={0.45} position={[0.62, -0.7, 0]} onPress={onClose} />
+        </>
+      )}
+    </group>
+  );
+}
+
+type Jump = { eye: THREE.Vector3; target: THREE.Vector3; n: number } | null;
+
+function WalkControls({ eye, target, bounds, jump }: { eye: THREE.Vector3; target: THREE.Vector3; bounds: { x0: number; x1: number; z0: number; z1: number }; jump: Jump }) {
   const camera = useThree((s) => s.camera);
   const gl = useThree((s) => s.gl);
   const session = useXR((s) => s.session);
@@ -202,6 +241,14 @@ function WalkControls({ eye, target, bounds }: { eye: THREE.Vector3; target: THR
     yaw.current = Math.atan2(-d.x, -d.z);
     pitch.current = Math.atan2(d.y, Math.hypot(d.x, d.z));
   }, [camera, eye, target]);
+  // "Go to" from search: stand where asked, looking at the target.
+  useEffect(() => {
+    if (!jump) return;
+    camera.position.copy(jump.eye);
+    const d = jump.target.clone().sub(jump.eye);
+    yaw.current = Math.atan2(-d.x, -d.z);
+    pitch.current = Math.atan2(d.y, Math.hypot(d.x, d.z));
+  }, [camera, jump]);
   useEffect(() => {
     if (session) return;
     const el = gl.domElement;
@@ -300,6 +347,10 @@ export function TwinVR({ state }: { state: FactoryState }) {
       }), []);
   const [support, setSupport] = useState<{ vr: boolean; ar: boolean } | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  const [findOpen, setFindOpen] = useState(false);
+  const [jump, setJump] = useState<Jump>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
   const originRef = useRef<THREE.Group>(null);
   useEffect(() => {
     setInXR(store.getState().session != null);
@@ -343,6 +394,33 @@ export function TwinVR({ state }: { state: FactoryState }) {
   const walkBounds = useMemo(() => ({ x0: b.x0 - 0.5, x1: b.x1 + 0.5, z0: b.y0 - 0.5, z1: b.y1 + 3 }), [b.x0, b.x1, b.y0, b.y1]);
   const headset = !!support && (support.vr || support.ar);
 
+  const index = useMemo(() => findIndex(state, layout, paths), [state, layout, paths]);
+  const results = useMemo(() => findEntries(index, query), [index, query]);
+  /** Go to a search result: stand at a clear spot a few metres away, facing it; select machines. */
+  const goTo = (e: FindEntry) => {
+    const target = new THREE.Vector3(...P(e.x, e.y, 1.3));
+    const sp = standPoint(layout, e.x, e.y, { x0: walkBounds.x0, x1: walkBounds.x1, y0: walkBounds.z0, y1: walkBounds.z1 }, e.assetId);
+    const stand = new THREE.Vector3(...P(sp.x, sp.y, 0));
+    if (originRef.current && inXR) {
+      originRef.current.position.set(stand.x, 0, stand.z);
+      // Face the target (the headset's forward is -z of the origin).
+      originRef.current.rotation.set(0, Math.atan2(-(target.x - stand.x), -(target.z - stand.z)), 0);
+    } else setJump({ eye: stand.clone().setY(EYE), target, n: Date.now() });
+    if (e.assetId) setSelected(e.assetId);
+    setQuery("");
+    setFindOpen(false);
+  };
+  // "/" focuses search (when not typing elsewhere).
+  useEffect(() => {
+    const k = (ev: KeyboardEvent) => {
+      if (ev.key !== "/" || (ev.target instanceof HTMLElement && ev.target.closest("input, textarea, select"))) return;
+      ev.preventDefault();
+      searchRef.current?.focus();
+    };
+    window.addEventListener("keydown", k);
+    return () => window.removeEventListener("keydown", k);
+  }, []);
+
   const boards = useMemo(() => {
     const alarmed = new Map(activeAlarms(state).map((a) => [a.assetId, a]));
     const ids = new Set<string>([...alarmed.keys(), ...(selected ? [selected] : [])]);
@@ -379,7 +457,9 @@ export function TwinVR({ state }: { state: FactoryState }) {
         <XR store={store}>
           <XROrigin ref={originRef} position={originPos}>
             {/* Exit VR: always within reach, at waist height in front of you; moves and turns with you. */}
-            {inXR && <Button3D label="Exit VR" color="#64748b" position={[0, 0.85, -0.7]} width={0.5} onPress={exitXR} />}
+            {inXR && <Button3D label="Exit VR" color="#64748b" position={[0.3, 0.85, -0.7]} width={0.5} onPress={exitXR} />}
+            {inXR && <Button3D label={findOpen ? "Hide Find" : "Find…"} color="#4c8dff" position={[-0.3, 0.85, -0.7]} width={0.5} onPress={() => setFindOpen(!findOpen)} />}
+            {inXR && findOpen && <FindMenu index={index} onPick={goTo} onClose={() => setFindOpen(false)} />}
           </XROrigin>
           <Locomotion origin={originRef} />
           {/* Teleport: push a thumbstick forward (or pinch-and-hold with hands), aim at the floor, release. */}
@@ -389,7 +469,7 @@ export function TwinVR({ state }: { state: FactoryState }) {
               <meshBasicMaterial transparent opacity={0} depthWrite={false} />
             </mesh>
           </TeleportTarget>
-          <WalkControls eye={eye} target={lookAt} bounds={walkBounds} />
+          <WalkControls eye={eye} target={lookAt} bounds={walkBounds} jump={jump} />
           <Scene
             pal={pal}
             quality="standard"
@@ -424,7 +504,42 @@ export function TwinVR({ state }: { state: FactoryState }) {
           </button>,
           document.body,
         )}
-      <div hidden={inXR} className="absolute top-3 left-3 max-w-[340px] rounded-lg border border-line bg-surface/90 px-3 py-2 text-[12px] shadow-[var(--shadow-card)] backdrop-blur">
+      {!inXR && (
+        <div className="absolute top-3 left-1/2 z-10 w-[min(420px,calc(100%-24px))] -translate-x-1/2" data-testid="vr-search">
+          <label className="flex h-9 items-center gap-2 rounded-lg border border-line bg-surface/95 px-3 text-[13px] shadow-[var(--shadow-card)] backdrop-blur focus-within:border-accent">
+            <Search className="h-4 w-4 shrink-0 text-muted" />
+            <input
+              ref={searchRef}
+              aria-label="Find in the plant"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && results[0]) goTo(results[0]);
+                if (e.key === "Escape") (setQuery(""), (e.target as HTMLInputElement).blur());
+              }}
+              placeholder="Find a machine, line, robot, camera, stock, order…  ( / )"
+              className="min-w-0 flex-1 bg-transparent text-ink outline-none placeholder:text-muted"
+            />
+          </label>
+          {query.trim() && (
+            <ul className="mt-1 max-h-72 overflow-auto rounded-lg border border-line bg-surface/97 p-1 text-[12.5px] shadow-xl backdrop-blur" data-testid="vr-search-results">
+              {results.length === 0 && <li className="px-2 py-1.5 text-muted">Nothing matches “{query}”.</li>}
+              {results.map((r) => (
+                <li key={r.key}>
+                  <button onClick={() => goTo(r)} className="flex w-full items-baseline gap-2 rounded-md px-2 py-1.5 text-left hover:bg-surface-2">
+                    <span className="w-16 shrink-0 text-[10.5px] tracking-wide text-muted uppercase">{FIND_KIND_LABEL[r.kind].replace(/s$/, "")}</span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-ink">{r.label}</span>
+                      <span className="block truncate text-[11px] text-muted">{r.sub}</span>
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+      <div hidden={inXR} className="absolute top-14 left-3 max-w-[320px] rounded-lg border border-line bg-surface/90 px-3 py-2 text-[12px] shadow-[var(--shadow-card)] backdrop-blur">
         <p className="font-medium text-ink">Walk the plant in VR</p>
         <p className="mt-0.5 leading-snug text-muted">
           In a headset: left thumbstick to move, right to turn, push a stick forward and aim at the floor to teleport. Point at a machine and pinch / pull the trigger to select it: its live signals and a control panel (speed, trip / restore, acknowledge alarm) appear beside it.
