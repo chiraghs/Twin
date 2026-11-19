@@ -18,6 +18,11 @@ import { Scene } from "./twin-3d";
 
 const EYE = 1.6; // standing eye height, layout units ≈ m in the 3D scene
 
+// The development headset emulator bundles an older three.js renderer that calls Material.onBuild,
+// which current three.js no longer defines. A no-op keeps emulation working; real headsets never call it.
+const proto = THREE.Material.prototype as unknown as { onBuild?: () => void };
+if (typeof proto.onBuild !== "function") proto.onBuild = () => undefined;
+
 /** A text board in the scene (drawn to a canvas texture), so it is visible inside the headset. */
 function Board({ lines, accent, position, width = 1.5 }: { lines: { text: string; tone?: "title" | "warn" | "bad" | "ok" | "muted" }[]; accent: string; position: [number, number, number]; width?: number }) {
   const tex = useMemo(() => {
@@ -75,7 +80,17 @@ function StandingView({ eye, target }: { eye: THREE.Vector3; target: THREE.Vecto
  */
 export function TwinVR({ state }: { state: FactoryState }) {
   const pal = usePalette();
-  const store = useMemo(() => createXRStore({ emulate: "metaQuest3", offerSession: false }), []);
+  // On localhost without WebXR, emulate a Meta Quest 3 (stereo, no synthetic room) for development.
+  const store = useMemo(() => createXRStore({
+        emulate: {
+          type: "metaQuest3",
+          syntheticEnvironment: false,
+          stereoEnabled: true,
+          headset: { position: [0, 1.7, 0], rotation: [0.28, 0, 0] },
+          controller: { left: { position: [-0.32, -0.42, -0.45] }, right: { position: [0.32, -0.42, -0.45] } },
+        },
+        offerSession: false,
+      }), []);
   const [support, setSupport] = useState<{ vr: boolean; ar: boolean } | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const plantRef = useRef<THREE.Group | null>(null);
@@ -107,7 +122,8 @@ export function TwinVR({ state }: { state: FactoryState }) {
   const b = layout.bounds;
   const center = useMemo(() => new THREE.Vector3(...P((b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2)), [b.x0, b.x1, b.y0, b.y1]);
   const span = Math.max(b.x1 - b.x0, b.y1 - b.y0);
-  const front = useMemo(() => new THREE.Vector3(center.x, 0, center.z + span * 0.55), [center, span]);
+  // Stand on the floor in front of the lines, inside the dock apron.
+  const front = useMemo(() => new THREE.Vector3(center.x, 0, center.z + span * 0.3), [center, span]);
   const eye = useMemo(() => front.clone().add(new THREE.Vector3(0, EYE, 0)), [front]);
   const lookAt = useMemo(() => center.clone().add(new THREE.Vector3(0, 0.6, 0)), [center]);
 
@@ -130,7 +146,7 @@ export function TwinVR({ state }: { state: FactoryState }) {
             }))
           : [{ text: `health ${a.healthScore.toFixed(0)} · ${a.signal.vibration.toFixed(1)} mm/s`, tone: "muted" as const }]),
       ];
-      return [{ id, lines, accent: alarm ? (alarm.severity === "critical" ? "#ef4444" : "#f59e0b") : "#4c8dff", position: P(pm.x, pm.y, machineParts(pm.m.kind).height + 1.1) }];
+      return [{ id, lines, accent: alarm ? (alarm.severity === "critical" ? "#ef4444" : "#f59e0b") : "#4c8dff", position: P(pm.x, pm.y, machineParts(pm.m.kind).height + 0.9) }];
     });
   }, [state, layout, selected]);
 
@@ -157,7 +173,7 @@ export function TwinVR({ state }: { state: FactoryState }) {
             facility={{ id: state.profile.id, name: state.profile.name }}
           />
           {boards.map((bd) => (
-            <Board key={bd.id} lines={bd.lines} accent={bd.accent} position={bd.position} />
+            <Board key={bd.id} lines={bd.lines} accent={bd.accent} position={bd.position} width={2.2} />
           ))}
         </XR>
       </Canvas>
