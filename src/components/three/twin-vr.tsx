@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { createPortal } from "react-dom";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Billboard } from "@react-three/drei";
 import { createXRStore, TeleportTarget, XR, XROrigin, useXR, useXRControllerLocomotion } from "@react-three/xr";
 import * as THREE from "three";
-import { Glasses, Move, Smartphone } from "lucide-react";
+import { Glasses, LogOut, Move, Smartphone } from "lucide-react";
 import { useAdmin } from "@/client/admin";
 import { api } from "@/client/api";
 import { useFactory, useUi } from "@/client/store";
@@ -283,12 +284,14 @@ export function TwinVR({ state }: { state: FactoryState }) {
   const pal = usePalette();
   // On localhost without WebXR, emulate a Meta Quest 3 (stereo, no synthetic room) for development.
   const [simulating] = useState(() => simulationOn());
+  const [inXR, setInXR] = useState(false);
   const store = useMemo(() => createXRStore({
         emulate: {
           type: "metaQuest3",
           syntheticEnvironment: false,
-          stereoEnabled: true,
-          headset: { position: [0, 1.7, 0], rotation: [0.28, 0, 0] },
+          // One full-size view on screen (a headset renders both eyes itself).
+          stereoEnabled: false,
+          headset: { position: [0, 1.7, 0], rotation: [0.12, 0, 0] },
           controller: { left: { position: [-0.32, -0.42, -0.45] }, right: { position: [0.32, -0.42, -0.45] } },
         },
         controller: { teleportPointer: true },
@@ -298,6 +301,11 @@ export function TwinVR({ state }: { state: FactoryState }) {
   const [support, setSupport] = useState<{ vr: boolean; ar: boolean } | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const originRef = useRef<THREE.Group>(null);
+  useEffect(() => {
+    setInXR(store.getState().session != null);
+    return store.subscribe((st) => setInXR(st.session != null));
+  }, [store]);
+  const exitXR = () => void store.getState().session?.end();
   const plantRef = useRef<THREE.Group | null>(null);
 
   useEffect(() => {
@@ -369,7 +377,10 @@ export function TwinVR({ state }: { state: FactoryState }) {
     <div className="relative h-full w-full" data-testid="twin-vr">
       <Canvas camera={{ fov: 70, near: 0.05, far: 400, position: eye.toArray() }} onCreated={({ gl }) => void (gl.toneMapping = THREE.ACESFilmicToneMapping)} aria-label="The plant in VR">
         <XR store={store}>
-          <XROrigin ref={originRef} position={originPos} />
+          <XROrigin ref={originRef} position={originPos}>
+            {/* Exit VR: always within reach, at waist height in front of you; moves and turns with you. */}
+            {inXR && <Button3D label="Exit VR" color="#64748b" position={[0, 0.85, -0.7]} width={0.5} onPress={exitXR} />}
+          </XROrigin>
           <Locomotion origin={originRef} />
           {/* Teleport: push a thumbstick forward (or pinch-and-hold with hands), aim at the floor, release. */}
           <TeleportTarget onTeleport={(p) => originRef.current?.position.set(p.x, 0, p.z)}>
@@ -400,7 +411,20 @@ export function TwinVR({ state }: { state: FactoryState }) {
           {selectedPos && selected && <ControlPanel state={state} assetId={selected} position={selectedPos} />}
         </XR>
       </Canvas>
-      <div className="absolute top-3 left-3 max-w-[340px] rounded-lg border border-line bg-surface/90 px-3 py-2 text-[12px] shadow-[var(--shadow-card)] backdrop-blur">
+      {/* On <body>, above everything (including the headset simulator's own layer). */}
+      {inXR &&
+        createPortal(
+          <button
+            onClick={exitXR}
+            style={{ zIndex: 2147483647 }}
+            className="fixed top-16 left-1/2 flex h-10 -translate-x-1/2 items-center gap-2 rounded-xl border border-line bg-surface px-5 text-[13.5px] font-medium text-ink shadow-2xl hover:bg-surface-2"
+            data-testid="exit-vr"
+          >
+            <LogOut className="h-4 w-4" /> Exit VR
+          </button>,
+          document.body,
+        )}
+      <div hidden={inXR} className="absolute top-3 left-3 max-w-[340px] rounded-lg border border-line bg-surface/90 px-3 py-2 text-[12px] shadow-[var(--shadow-card)] backdrop-blur">
         <p className="font-medium text-ink">Walk the plant in VR</p>
         <p className="mt-0.5 leading-snug text-muted">
           In a headset: left thumbstick to move, right to turn, push a stick forward and aim at the floor to teleport. Point at a machine and pinch / pull the trigger to select it: its live signals and a control panel (speed, trip / restore, acknowledge alarm) appear beside it.
@@ -412,7 +436,7 @@ export function TwinVR({ state }: { state: FactoryState }) {
           </span>
         </p>
       </div>
-      <div className="absolute bottom-4 left-1/2 flex -translate-x-1/2 gap-2" data-testid="vr-buttons">
+      <div hidden={inXR} className="absolute bottom-4 left-1/2 flex -translate-x-1/2 gap-2" data-testid="vr-buttons">
         <button
           onClick={() => void store.enterVR()}
           disabled={!support?.vr}
@@ -428,12 +452,12 @@ export function TwinVR({ state }: { state: FactoryState }) {
           <Smartphone className="h-4 w-4" /> Enter passthrough AR
         </button>
       </div>
-      {support && !headset && (
+      {support && !headset && !inXR && (
         <p className="absolute bottom-16 left-1/2 -translate-x-1/2 rounded-md bg-surface/90 px-3 py-1 text-center text-[11.5px] text-muted">
           No headset found, so you&apos;re walking on screen. To enter VR, open this page in Meta Quest Browser.
         </p>
       )}
-      {isLocalhost() && (support !== null || simulating) && (!headset || simulating) && (
+      {isLocalhost() && !inXR && (support !== null || simulating) && (!headset || simulating) && (
         <button
           onClick={() => {
             try {
