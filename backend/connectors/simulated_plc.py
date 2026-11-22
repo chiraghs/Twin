@@ -5,7 +5,9 @@ noise, so field values can be linked to twin signals and compared.
 OPC UA:  opc.tcp://127.0.0.1:<opcua_port>/twin-plc/  →  Objects/PLC1/<asset>/<Signal>
 Modbus:  127.0.0.1:<modbus_port>, unit 1. Read-only holding registers, from machine index × 10:
          +0 speed % (×1), +1 vibration mm/s (×0.01), +2 temperature °C (×0.1), +3 throughput u/h (×1),
-         +4 running (0 / 1).
+         +4 running (0 / 1), +5 power kW (×0.1), +6 motor current A (×0.1), +7 cycle time s (×0.1),
+         +8 machine state code (0 running, 1 idle, 2 starved, 3 blocked, 4 changeover, 5 fault,
+         6 maintenance).
 """
 from __future__ import annotations
 
@@ -29,10 +31,24 @@ class PlcMachine(BaseModel):
     temperature: float = 45.0
     throughput: float = 100
     running: bool = True
+    powerKw: float = 0.0
+    currentA: float = 0.0
+    cycleTimeS: float = 0.0
+    state: int = Field(default=0, ge=0, le=6)
 
 
-SIGNALS = ("SpeedSetpoint", "Vibration", "Temperature", "Throughput", "Running")
-MODBUS_LAYOUT = {"SpeedSetpoint": (0, 1.0), "Vibration": (1, 0.01), "Temperature": (2, 0.1), "Throughput": (3, 1.0), "Running": (4, 1.0)}
+SIGNALS = ("SpeedSetpoint", "Vibration", "Temperature", "Throughput", "Running", "Power", "Current", "CycleTime", "State")
+MODBUS_LAYOUT = {
+    "SpeedSetpoint": (0, 1.0),
+    "Vibration": (1, 0.01),
+    "Temperature": (2, 0.1),
+    "Throughput": (3, 1.0),
+    "Running": (4, 1.0),
+    "Power": (5, 0.1),
+    "Current": (6, 0.1),
+    "CycleTime": (7, 0.1),
+    "State": (8, 1.0),
+}
 
 
 def modbus_map(machines: list[PlcMachine]) -> list[dict[str, Any]]:
@@ -77,6 +93,10 @@ class SimulatedPlc:
             out[f"{m.assetId}.Temperature"] = round(m.temperature + 0.6 * wobble + random.uniform(-0.2, 0.2), 1)
             out[f"{m.assetId}.Throughput"] = round(max(0.0, m.throughput * (1 + 0.02 * wobble)), 1) if on else 0.0
             out[f"{m.assetId}.Running"] = on
+            out[f"{m.assetId}.Power"] = round(max(0.0, m.powerKw * (1 + 0.015 * wobble)), 2)
+            out[f"{m.assetId}.Current"] = round(max(0.0, m.currentA * (1 + 0.015 * wobble) + random.uniform(-0.1, 0.1)), 1)
+            out[f"{m.assetId}.CycleTime"] = round(m.cycleTimeS, 1) if on else 0.0
+            out[f"{m.assetId}.State"] = m.state
         return out
 
     async def start(self, machines: list[PlcMachine]) -> None:
@@ -161,7 +181,7 @@ class SimulatedPlc:
         values = self.values()
         for tag, node in self._opc_nodes.items():
             v = values[tag]
-            await node.write_value(v if isinstance(v, bool) else float(v))
+            await node.write_value(v if isinstance(v, bool) else float(v) if isinstance(v, float) else int(v))
         for row in modbus_map(self.machines):
             v = values[row["tag"]]
             self._regs[row["address"]] = int(bool(v)) if isinstance(v, bool) else max(0, min(65535, int(round(float(v) / row["scale"]))))

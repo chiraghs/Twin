@@ -7,6 +7,7 @@ import { bk } from "@/client/backend";
 import { useUi } from "@/client/store";
 import { Badge, Button, Card, CardBody, CardHeader, Input, Select } from "@/components/ui/primitives";
 import { assetSignals } from "@/domain/live";
+import { MACHINE_STATE_CODE, cycleTime, electrical, machineStates } from "@/domain/process-signals";
 import { linkAgrees, modbusAddress, type FieldProtocol, type FieldTag, type SignalLink } from "@/domain/signal-links";
 import type { Asset, FactoryState } from "@/domain/types";
 import { cn } from "@/lib/cn";
@@ -16,7 +17,22 @@ type FieldValue = { value: number | boolean | string | null; quality: string; er
 const DRAG_TYPE = "application/x-twin-field-tag";
 
 const plcMachines = (s: FactoryState) =>
-  s.assets.map((a) => ({ assetId: a.id, speedPct: a.speedPct, vibration: a.signal.vibration, temperature: a.signal.temperature, throughput: a.signal.throughput, running: a.mode === "running" }));
+  s.assets.map((a) => {
+    const ms = machineStates(s)[a.id];
+    const ct = cycleTime(a);
+    return {
+      assetId: a.id,
+      speedPct: a.speedPct,
+      vibration: a.signal.vibration,
+      temperature: a.signal.temperature,
+      throughput: a.signal.throughput,
+      running: a.mode === "running",
+      powerKw: a.signal.powerKw,
+      currentA: electrical(s, a).currentA,
+      cycleTimeS: ct.actualS ?? 0,
+      state: ms ? MACHINE_STATE_CODE[ms.state] : 0,
+    };
+  });
 
 /**
  * Field signals: browse a PLC over OPC UA or read Modbus registers, then drag a field tag onto a

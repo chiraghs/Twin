@@ -6,13 +6,20 @@ import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Billboard } from "@react-three/drei";
 import { createXRStore, TeleportTarget, XR, XROrigin, useXR, useXRControllerLocomotion } from "@react-three/xr";
 import * as THREE from "three";
-import { Glasses, LogOut, Move, Search, Smartphone } from "lucide-react";
+import { Activity, Armchair, Check, Copy, Flame, Gauge, Glasses, History, LogOut, Move, Pause, Play, Search, Sparkles, Table2, Waves, Zap } from "lucide-react";
 import { useAdmin } from "@/client/admin";
 import { api } from "@/client/api";
+import { useRecording } from "@/client/recording";
 import { useFactory, useUi } from "@/client/store";
+import { Button, Dialog } from "@/components/ui/primitives";
+import { cn } from "@/lib/cn";
 import { amrFleet } from "@/domain/intralogistics";
 import { activeAlarms, assetSignals, lineFlows } from "@/domain/live";
+import { cycleTime, electrical, machineStates, processValues, remainingLife, zoneEnvironment } from "@/domain/process-signals";
+import { quickWhatIf, type QuickWhatIf } from "@/domain/quick-what-if";
 import type { FactoryState } from "@/domain/types";
+import type { HeatMetric } from "@/domain/voice-commands";
+import { useVoiceSettings } from "@/client/speech";
 import { machineParts } from "../iso/geometry";
 import { isoModelFromState, layoutIso } from "../iso/model";
 import { amrPaths } from "./amr-paths";
@@ -20,6 +27,11 @@ import { usePalette } from "./palette";
 import { P } from "./scene";
 import { Scene } from "./twin-3d";
 import { FIND_KIND_LABEL, findEntries, findIndex, standPoint, type FindEntry, type FindKind } from "./vr-search";
+import { GripTalk, useVrVoice, VoiceDock, VoiceRig3D } from "./vr-voice";
+import { FpsProbe, HandMenu, TablePlacer, useFps, type HandMenuItem } from "./vr-hands";
+import { Board, Button3D, textTexture, type BoardLine, type Spark } from "./vr-ui";
+import { AlarmSounds, FlowOverlay, HEAT_LABEL, HEAT_LEGEND, HEAT_METRICS, heatCells, HeatOverlay, replayEvents, replayFrame, replayStart, replayStatus } from "./vr-overlays";
+import { useView3d } from "@/client/view3d";
 
 const EYE = 1.6; // standing eye height, layout units ≈ m in the 3D scene
 
@@ -28,100 +40,11 @@ const EYE = 1.6; // standing eye height, layout units ≈ m in the 3D scene
 const proto = THREE.Material.prototype as unknown as { onBuild?: () => void };
 if (typeof proto.onBuild !== "function") proto.onBuild = () => undefined;
 
-/** A text board in the scene (drawn to a canvas texture), so it is visible inside the headset. */
-function Board({ lines, accent, position, width = 1.5 }: { lines: { text: string; tone?: "title" | "warn" | "bad" | "ok" | "muted" }[]; accent: string; position: [number, number, number]; width?: number }) {
-  const tex = useMemo(() => {
-    const W = 512;
-    const rowH = 44;
-    const H = 24 + lines.length * rowH;
-    const c = document.createElement("canvas");
-    c.width = W;
-    c.height = H;
-    const g = c.getContext("2d")!;
-    g.fillStyle = "rgba(10,14,24,0.92)";
-    g.beginPath();
-    g.roundRect(0, 0, W, H, 22);
-    g.fill();
-    g.fillStyle = accent;
-    g.fillRect(0, 0, 10, H);
-    lines.forEach((l, i) => {
-      g.font = l.tone === "title" ? "600 30px system-ui, sans-serif" : "26px system-ui, sans-serif";
-      g.fillStyle = l.tone === "bad" ? "#f87171" : l.tone === "warn" ? "#fbbf24" : l.tone === "ok" ? "#4ade80" : l.tone === "muted" ? "#94a3b8" : "#e5e7eb";
-      g.fillText(l.text, 28, 44 + i * rowH);
-    });
-    const t = new THREE.CanvasTexture(c);
-    t.colorSpace = THREE.SRGBColorSpace;
-    t.anisotropy = 4;
-    return { t, aspect: H / W };
-  }, [lines, accent]);
-  useEffect(() => () => tex.t.dispose(), [tex]);
-  return (
-    <Billboard position={position}>
-      <mesh>
-        <planeGeometry args={[width, width * tex.aspect]} />
-        <meshBasicMaterial map={tex.t} transparent toneMapped={false} depthWrite={false} />
-      </mesh>
-    </Billboard>
-  );
-}
-
-/** Draws text lines to a canvas texture (shared by boards and buttons). */
-function textTexture(lines: { text: string; color?: string; font?: string }[], w: number, h: number, bg: string, border?: string) {
-  const c = document.createElement("canvas");
-  c.width = w;
-  c.height = h;
-  const g = c.getContext("2d")!;
-  g.fillStyle = bg;
-  g.beginPath();
-  g.roundRect(0, 0, w, h, Math.min(24, h / 3));
-  g.fill();
-  if (border) {
-    g.strokeStyle = border;
-    g.lineWidth = 6;
-    g.stroke();
-  }
-  g.textAlign = "center";
-  g.textBaseline = "middle";
-  lines.forEach((l, i) => {
-    g.font = l.font ?? "600 34px system-ui, sans-serif";
-    g.fillStyle = l.color ?? "#e5e7eb";
-    g.fillText(l.text, w / 2, (h * (i + 1)) / (lines.length + 1));
-  });
-  const t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.SRGBColorSpace;
-  return t;
-}
-
-/** A 3D button: point with a hand or controller and pinch / pull the trigger (or click on screen). */
-function Button3D({ label, color, position, width = 0.62, disabled, onPress }: { label: string; color: string; position: [number, number, number]; width?: number; disabled?: boolean; onPress: () => void }) {
-  const [hover, setHover] = useState(false);
-  const tex = useMemo(() => textTexture([{ text: label, color: disabled ? "#64748b" : "#f8fafc" }], 384, 128, disabled ? "rgba(30,41,59,0.9)" : hover ? color : "rgba(15,23,42,0.95)", disabled ? undefined : color), [label, color, hover, disabled]);
-  useEffect(() => () => tex.dispose(), [tex]);
-  return (
-    <mesh
-      position={position}
-      scale={hover && !disabled ? 1.06 : 1}
-      onPointerOver={(e) => {
-        e.stopPropagation();
-        setHover(true);
-      }}
-      onPointerOut={() => setHover(false)}
-      onClick={(e) => {
-        e.stopPropagation();
-        if (!disabled) onPress();
-      }}
-    >
-      <planeGeometry args={[width, width / 3]} />
-      <meshBasicMaterial map={tex} transparent toneMapped={false} />
-    </mesh>
-  );
-}
-
 /**
  * The control panel that floats beside a selected machine: change its speed, trip it, restore it
  * and acknowledge its alarm. Uses the same audited commands as Signals & Commissioning; twin only.
  */
-function ControlPanel({ state, assetId, position }: { state: FactoryState; assetId: string; position: [number, number, number] }) {
+function ControlPanel({ state, assetId, position, onWhatIf }: { state: FactoryState; assetId: string; position: [number, number, number]; onWhatIf: (change: { speedPct?: number; maintainNow?: boolean }) => void }) {
   const admin = useAdmin((s) => s.admin);
   const loaded = useAdmin((s) => s.loaded);
   const loadAdmin = useAdmin((s) => s.load);
@@ -176,6 +99,10 @@ function ControlPanel({ state, assetId, position }: { state: FactoryState; asset
         disabled={off || !incident}
         onPress={() => incident && void run(`${incident.id} acknowledged`, async () => (await api<{ state: FactoryState }>(`/api/incidents/${incident.id}/ack`, { body: { by: operator } })).state)}
       />
+      {/* What-if: simulated only, so anyone can ask. */}
+      <Button3D label="What if −20%?" color="#a855f7" position={[-0.66, -0.32, 0]} onPress={() => onWhatIf({ speedPct: Math.max(30, a.speedPct - 20) })} />
+      <Button3D label="What if +10%?" color="#a855f7" position={[0, -0.32, 0]} onPress={() => onWhatIf({ speedPct: Math.min(110, a.speedPct + 10) })} />
+      <Button3D label="What if service now?" color="#a855f7" position={[0.66, -0.32, 0]} onPress={() => onWhatIf({ maintainNow: true })} />
     </Billboard>
   );
 }
@@ -296,12 +223,53 @@ function WalkControls({ eye, target, bounds, jump }: { eye: THREE.Vector3; targe
     const cy = Math.cos(yaw.current);
     camera.position.x = Math.max(bounds.x0, Math.min(bounds.x1, camera.position.x + (-sy * f + cy * r) * speed));
     camera.position.z = Math.max(bounds.z0, Math.min(bounds.z1, camera.position.z + (-cy * f - sy * r) * speed));
-    camera.position.y = EYE;
+    camera.position.y = eye.y;
     camera.rotation.order = "YXZ";
     camera.rotation.set(pitch.current, yaw.current, 0);
   });
   return null;
 }
+
+const nextHeat = (h: HeatMetric | null): HeatMetric | null => {
+  const i = h ? HEAT_METRICS.indexOf(h) : -1;
+  return i + 1 < HEAT_METRICS.length ? HEAT_METRICS[i + 1] : null;
+};
+
+/** The replay board: when, and what had happened by then. */
+function replayLines(state: FactoryState, hour: number): BoardLine[] {
+  const ago = state.clock.hour - hour;
+  const ev = replayEvents(state, hour, 3);
+  return [
+    { text: `Replay · ${ago < 1 ? `${Math.round(ago * 60)} min` : `${ago.toFixed(1)} h`} ago`, tone: "title" },
+    ...(ev.length ? ev.map((e) => ({ text: `${(state.clock.hour - e.hour).toFixed(1)} h ago: ${e.assetId} ${e.title.replace(/^[^—:]+[—:]\s*/, "")}`, tone: e.severity === "critical" ? ("bad" as const) : ("warn" as const) })) : [{ text: "No incidents yet at this point", tone: "muted" as const }]),
+  ];
+}
+
+/** Frame rate of the render loop (inside a headset: XR frames). Quest target: 72 fps or more. */
+function FpsChip({ questPerf }: { questPerf?: boolean }) {
+  const fps = useFps((s) => s.fps);
+  const ms = useFps((s) => s.ms);
+  if (!fps) return null;
+  return (
+    <span
+      className={`ml-auto flex items-center gap-1 text-[11px] tabular ${fps >= 60 ? "text-success-ink" : "text-warning-ink"}`}
+      title={`Render loop: ${fps} FPS (${ms ? `${ms}ms` : `${(1000 / fps).toFixed(1)}ms`} frame time) · Target: 72Hz`}
+      data-testid="vr-fps"
+    >
+      <Gauge className="h-3 w-3" /> {fps} fps {ms ? `(${ms}ms)` : ""} {questPerf ? "⚡" : ""}
+    </span>
+  );
+}
+
+/** Hands the scene camera (the headset pose in XR) to code outside the canvas. */
+function CameraRef({ target }: { target: RefObject<THREE.Camera | null> }) {
+  const camera = useThree((s) => s.camera);
+  useEffect(() => void (target.current = camera), [camera, target]);
+  return null;
+}
+
+const alwaysAffected = () => true;
+const noRegister = () => undefined;
 
 const SIM_KEY = "twin-vr-simulate";
 const isLocalhost = () => typeof window !== "undefined" && ["localhost", "127.0.0.1"].includes(window.location.hostname);
@@ -322,6 +290,151 @@ function simulationOn(): boolean {
 }
 
 /**
+ * Prepares the operator for a live VR demonstration: exposes the direct deep-link (/twin?view=vr),
+ * demo recording overlay toggle (Shift + C), Quest performance mode status, and voice commands cheat sheet.
+ */
+function PrepareVRDemoDialog({
+  open,
+  onOpenChange,
+  seated,
+  onToggleSeated,
+  questPerf,
+  onTogglePerf,
+  recordingOn,
+  onToggleRecording,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  seated: boolean;
+  onToggleSeated: () => void;
+  questPerf: boolean;
+  onTogglePerf: () => void;
+  recordingOn: boolean;
+  onToggleRecording: () => void;
+}) {
+  const [copied, setCopied] = useState(false);
+  const vrUrl = typeof window !== "undefined" ? `${window.location.origin}/twin?view=vr` : "/twin?view=vr";
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(vrUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      /* clipboard write blocked */
+    }
+  };
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title="Prepare Meta Quest VR & MR Demo"
+      description="Direct deep-link to VR, activate hackathon recording badges with live captions, and practice hands-free voice commands."
+      footer={
+        <Button variant="secondary" size="sm" onClick={() => onOpenChange(false)}>
+          Close
+        </Button>
+      }
+    >
+      <div className="space-y-3.5 text-[12.5px]">
+        <div className="rounded-xl border border-line bg-surface-2/60 p-3">
+          <div className="flex items-center justify-between">
+            <span className="font-semibold text-ink">VR Direct Deep Link</span>
+            <button
+              onClick={copy}
+              className="flex items-center gap-1.5 rounded-md border border-line bg-surface px-2.5 py-1 text-[11.5px] font-medium text-ink shadow-sm hover:bg-surface-2"
+              data-testid="copy-vr-link"
+            >
+              {copied ? <Check className="h-3.5 w-3.5 text-success-ink" /> : <Copy className="h-3.5 w-3.5" />}
+              {copied ? "Copied!" : "Copy link"}
+            </button>
+          </div>
+          <p className="mt-1 font-mono text-[11.5px] text-muted break-all select-all">{vrUrl}</p>
+          <p className="mt-1 text-[11px] leading-relaxed text-muted">
+            Open this URL directly in Meta Quest Browser to enter the VR spatial twin without navigating menus.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2.5">
+          <div className="rounded-xl border border-line bg-surface-2/60 p-3">
+            <div className="flex items-center justify-between">
+              <span className="font-medium text-ink">Recording Overlay</span>
+              <button
+                onClick={onToggleRecording}
+                className={cn(
+                  "flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-[11.5px] font-medium transition-colors",
+                  recordingOn
+                    ? "border-critical bg-critical text-white font-semibold"
+                    : "border-line bg-surface text-ink hover:bg-surface-2",
+                )}
+              >
+                <span className={cn("h-2 w-2 rounded-full", recordingOn ? "bg-white animate-pulse" : "bg-muted")} />
+                {recordingOn ? "Active" : "Off"}
+              </button>
+            </div>
+            <p className="mt-1 text-[11px] text-muted">
+              <b>Shift + C</b>: displays EXISTING vs NEW badges and broadcast-quality voice captions.
+            </p>
+          </div>
+
+          <div className="rounded-xl border border-line bg-surface-2/60 p-3">
+            <div className="flex items-center justify-between">
+              <span className="font-medium text-ink">Quest 72Hz Perf Mode</span>
+              <button
+                onClick={onTogglePerf}
+                className={cn(
+                  "flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11.5px] font-medium transition-colors",
+                  questPerf ? "border-amber-500/60 bg-amber-500/10 text-amber-300 font-semibold" : "border-line bg-surface text-muted",
+                )}
+              >
+                <Zap className="h-3 w-3" /> {questPerf ? "72fps On" : "Quality"}
+              </button>
+            </div>
+            <p className="mt-1 text-[11px] text-muted">
+              Fixed DPR 1.0 and foveation 1.0 lock smooth frame pacing on Meta Quest 3.
+            </p>
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-line bg-surface-2/60 p-3">
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="font-medium text-ink">Spatial Ergonomics & Controls</span>
+            <button
+              onClick={onToggleSeated}
+              className={cn(
+                "flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-medium",
+                seated ? "border-purple-500/60 bg-purple-500/15 text-purple-300" : "border-line bg-surface text-muted",
+              )}
+            >
+              <Armchair className="h-3 w-3" /> {seated ? "Seated Desk" : "Standing"}
+            </button>
+          </div>
+          <ul className="space-y-1 text-[11.5px] leading-relaxed text-muted">
+            <li>• <b>Push-to-talk (V)</b>: Hold <kbd className="rounded border border-line px-1 py-0.5 font-mono text-[10.5px] text-ink">V</kbd> or squeeze <b>left controller grip</b> inside XR.</li>
+            <li>• <b>Palm-up menu</b>: Turn your left or right wrist toward your face to reveal fingertip poke buttons.</li>
+            <li>• <b>Tabletop MR</b>: Enter passthrough and pinch any real desk or table to place the miniature factory.</li>
+            <li>• <b>Locomotion</b>: Left stick to walk, right stick to snap-turn 45°, push stick forward to teleport.</li>
+          </ul>
+        </div>
+
+        <div className="rounded-xl border border-line bg-surface-2/60 p-3">
+          <p className="font-semibold text-ink mb-1">Key Voice Commands</p>
+          <div className="grid grid-cols-2 gap-1.5 font-mono text-[11px] text-ink-2">
+            <div>• &ldquo;table view&rdquo; / &ldquo;full scale&rdquo;</div>
+            <div>• &ldquo;recenter&rdquo; / &ldquo;seated mode&rdquo;</div>
+            <div>• &ldquo;where is the bottleneck&rdquo;</div>
+            <div>• &ldquo;what if A-ROB-03 runs at 80%&rdquo;</div>
+            <div>• &ldquo;show vibration heatmap&rdquo;</div>
+            <div>• &ldquo;replay the last 6 hours&rdquo;</div>
+          </div>
+        </div>
+      </div>
+    </Dialog>
+  );
+}
+
+/**
  * The plant in VR (and passthrough AR) for Meta Quest Browser and other WebXR headsets. You stand
  * at the front of the plant floor; point at a machine with a hand (pinch) or controller (trigger)
  * to select it, and its live signals appear on a board above it. Machines with alarms always show
@@ -332,10 +445,22 @@ export function TwinVR({ state }: { state: FactoryState }) {
   // On localhost without WebXR, emulate a Meta Quest 3 (stereo, no synthetic room) for development.
   const [simulating] = useState(() => simulationOn());
   const [inXR, setInXR] = useState(false);
+  const [xrMode, setXrMode] = useState<XRSessionMode | null>(null);
+  /** Tabletop: the plant as a miniature on a real surface (passthrough) or in front of you (VR). */
+  const [tableVR, setTableVR] = useState(false);
+  const [table, setTable] = useState<{ at: THREE.Vector3; yaw: number } | null>(null);
+  const [seated, setSeated] = useState(false);
+  const [questPerf, setQuestPerf] = useState(true);
+  const [prepareOpen, setPrepareOpen] = useState(false);
+  const recordingOn = useRecording((s) => s.on);
+  const recordingToggle = useRecording((s) => s.toggle);
+  const tableRef = useRef<(on: boolean) => void>(() => undefined);
+  const camRef = useRef<THREE.Camera | null>(null);
   const store = useMemo(() => createXRStore({
         emulate: {
           type: "metaQuest3",
-          syntheticEnvironment: false,
+          // Development only: a virtual office stands in for your room in passthrough (tabletop placement).
+          syntheticEnvironment: "office_small",
           // One full-size view on screen (a headset renders both eyes itself).
           stereoEnabled: false,
           headset: { position: [0, 1.7, 0], rotation: [0.12, 0, 0] },
@@ -344,20 +469,34 @@ export function TwinVR({ state }: { state: FactoryState }) {
         controller: { teleportPointer: true },
         hand: { teleportPointer: true },
         offerSession: false,
+        // Quest performance: full foveation, and a steady 72 or 90 Hz rather than chasing 120.
+        foveation: 1,
+        frameRate: (rates) => ([90, 72].find((r) => Array.from(rates).includes(r)) ?? false),
       }), []);
   const [support, setSupport] = useState<{ vr: boolean; ar: boolean } | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [findOpen, setFindOpen] = useState(false);
   const [jump, setJump] = useState<Jump>(null);
+  const [heat, setHeat] = useState<HeatMetric | null>(null);
+  const [flowOn, setFlowOn] = useState(true);
+  const [replay, setReplay] = useState<{ hour: number; playing: boolean } | null>(null);
+  const [whatIf, setWhatIf] = useState<QuickWhatIf | null>(null);
+  const muted = useVoiceSettings((s) => s.muted);
   const searchRef = useRef<HTMLInputElement>(null);
   const originRef = useRef<THREE.Group>(null);
   useEffect(() => {
     setInXR(store.getState().session != null);
-    return store.subscribe((st) => setInXR(st.session != null));
+    setXrMode(store.getState().mode);
+    return store.subscribe((st) => {
+      setInXR(st.session != null);
+      setXrMode(st.mode);
+      if (!st.session) setTable(null);
+    });
   }, [store]);
   const exitXR = () => void store.getState().session?.end();
   const plantRef = useRef<THREE.Group | null>(null);
+  const facility = useMemo(() => ({ id: state.profile.id, name: state.profile.name }), [state.profile.id, state.profile.name]);
 
   useEffect(() => {
     let alive = true;
@@ -386,18 +525,64 @@ export function TwinVR({ state }: { state: FactoryState }) {
   const b = layout.bounds;
   const center = useMemo(() => new THREE.Vector3(...P((b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2)), [b.x0, b.x1, b.y0, b.y1]);
   const span = Math.max(b.x1 - b.x0, b.y1 - b.y0);
+  const eyeHeight = seated ? 1.2 : 1.6;
   // Stand on the floor in front of the lines, inside the dock apron.
   const front = useMemo(() => new THREE.Vector3(center.x, 0, center.z + span * 0.3), [center, span]);
-  const eye = useMemo(() => front.clone().add(new THREE.Vector3(0, EYE, 0)), [front]);
+  const eye = useMemo(() => front.clone().add(new THREE.Vector3(0, eyeHeight, 0)), [front, eyeHeight]);
   const lookAt = useMemo(() => center.clone().add(new THREE.Vector3(0, 0.6, 0)), [center]);
   const originPos = useMemo(() => front.toArray() as [number, number, number], [front]);
   const walkBounds = useMemo(() => ({ x0: b.x0 - 0.5, x1: b.x1 + 0.5, z0: b.y0 - 0.5, z1: b.y1 + 3 }), [b.x0, b.x1, b.y0, b.y1]);
   const headset = !!support && (support.vr || support.ar);
+  const tableMode = (inXR && xrMode === "immersive-ar") || tableVR;
+  /** Tabletop scale: the whole plant fits in about 0.8 m. */
+  const tableScale = 0.8 / Math.max(1, span);
+  /** In VR the table appears in front of you at desk height; in passthrough you place it on a real surface. */
+  const placeVRTable = () => {
+    // In front of your head, a little below eye level: comfortable seated or standing.
+    const cam = camRef.current;
+    if (!cam) {
+      setTable({ at: new THREE.Vector3(center.x, seated ? 0.65 : 0.85, center.z), yaw: 0 });
+      return;
+    }
+    const head = cam.getWorldPosition(new THREE.Vector3());
+    const fwd = cam.getWorldDirection(new THREE.Vector3()).setY(0);
+    if (fwd.lengthSq() < 1e-6) fwd.set(0, 0, -1);
+    fwd.normalize();
+    const dist = seated ? 0.65 : 0.82;
+    const yOffset = seated ? 0.35 : 0.45;
+    const at = head.clone().addScaledVector(fwd, dist).setY(Math.max(0.3, head.y - yOffset));
+    setTable({ at, yaw: Math.atan2(-fwd.x, -fwd.z) });
+  };
+  const recenter = () => {
+    if (tableMode) return xrMode === "immersive-ar" ? setTable(null) : placeVRTable();
+    originRef.current?.position.set(front.x, 0, front.z);
+    originRef.current?.rotation.set(0, 0, 0);
+    if (!inXR) {
+      setJump({ eye: front.clone().setY(eyeHeight), target: lookAt, n: Date.now() });
+    }
+  };
+  const toggleTable = () => {
+    if (xrMode === "immersive-ar") return setTable(null); // re-place on a surface
+    if (tableVR) {
+      setTableVR(false);
+      setTable(null);
+    } else {
+      setTableVR(true);
+      placeVRTable();
+    }
+  };
 
   const index = useMemo(() => findIndex(state, layout, paths), [state, layout, paths]);
   const results = useMemo(() => findEntries(index, query), [index, query]);
   /** Go to a search result: stand at a clear spot a few metres away, facing it; select machines. */
   const goTo = (e: FindEntry) => {
+    if (tableMode) {
+      // On the table everything is within reach: just select it.
+      if (e.assetId) setSelected(e.assetId);
+      setQuery("");
+      setFindOpen(false);
+      return;
+    }
     const target = new THREE.Vector3(...P(e.x, e.y, 1.3));
     const sp = standPoint(layout, e.x, e.y, { x0: walkBounds.x0, x1: walkBounds.x1, y0: walkBounds.z0, y1: walkBounds.z1 }, e.assetId);
     const stand = new THREE.Vector3(...P(sp.x, sp.y, 0));
@@ -405,11 +590,68 @@ export function TwinVR({ state }: { state: FactoryState }) {
       originRef.current.position.set(stand.x, 0, stand.z);
       // Face the target (the headset's forward is -z of the origin).
       originRef.current.rotation.set(0, Math.atan2(-(target.x - stand.x), -(target.z - stand.z)), 0);
-    } else setJump({ eye: stand.clone().setY(EYE), target, n: Date.now() });
+    } else setJump({ eye: stand.clone().setY(eyeHeight), target, n: Date.now() });
     if (e.assetId) setSelected(e.assetId);
     setQuery("");
     setFindOpen(false);
   };
+  const runWhatIf = (assetId: string, change: { speedPct?: number; maintainNow?: boolean }) => {
+    const r = quickWhatIf(state, assetId, change);
+    setWhatIf(r);
+    return r;
+  };
+  const startReplay = (hours: number | null) => {
+    if (hours === null) return setReplay(null);
+    const from = Math.max(replayStart(state), state.clock.hour - hours);
+    setReplay({ hour: from, playing: true });
+    if (!heat) setHeat("health");
+  };
+  const voice = useVrVoice({
+    state,
+    index,
+    selected,
+    goTo,
+    exitXR,
+    inXR,
+    overlays: {
+      setHeat,
+      setFlow: setFlowOn,
+      whatIf: runWhatIf,
+      replay: startReplay,
+      table: (on) => {
+        if (on !== tableMode) toggleTable();
+      },
+      recenter,
+      seated: (on) => setSeated(on),
+      perf: (on) => setQuestPerf(on),
+    },
+  });
+  // The copilot's show_in_3d (spoken or typed) moves you here instead of switching to the 3D tab.
+  const request = useView3d((s) => s.request);
+  const consume = useView3d((s) => s.consume);
+  useEffect(() => {
+    if (!request) return;
+    consume(request.nonce);
+    if (request.kind === "focus") {
+      const id = request.id.replace(/^(cam|amr|inv|ord):/, "");
+      const hit = index.find((e) => e.assetId === id || e.key.endsWith(`:${id}`));
+      if (hit) goTo(hit);
+    }
+  }, [request]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Simulator only: Shift + H hides its control panels for clean recordings (voice and keys still work).
+  useEffect(() => {
+    if (!simulating) return;
+    let hidden = false;
+    const k = (ev: KeyboardEvent) => {
+      if (!ev.shiftKey || ev.code !== "KeyH") return;
+      hidden = !hidden;
+      document.querySelectorAll<HTMLElement>("div").forEach((el) => {
+        if (el.shadowRoot && el.style.position === "fixed" && el.style.width === "100vw") el.style.visibility = hidden ? "hidden" : "";
+      });
+    };
+    window.addEventListener("keydown", k);
+    return () => window.removeEventListener("keydown", k);
+  }, [simulating]);
   // "/" focuses search (when not typing elsewhere).
   useEffect(() => {
     const k = (ev: KeyboardEvent) => {
@@ -421,28 +663,118 @@ export function TwinVR({ state }: { state: FactoryState }) {
     return () => window.removeEventListener("keydown", k);
   }, []);
 
+  // Replay plays forward at about 40 plant minutes per second, then returns to live.
+  useEffect(() => {
+    if (!replay?.playing) return;
+    const t = setInterval(() => {
+      setReplay((r) => {
+        if (!r || !r.playing) return r;
+        const next = r.hour + 1 / 6; // 10 plant minutes per 250 ms
+        return next >= state.clock.hour ? null : { ...r, hour: next };
+      });
+    }, 250);
+    return () => clearInterval(t);
+  }, [replay?.playing, state.clock.hour]);
+  const frame = useMemo(() => (replay ? replayFrame(state, replay.hour) : null), [state, replay]);
+  const cells = useMemo(() => (heat ? heatCells(state, layout, heat, frame) : []), [state, layout, heat, frame]);
+  const soundAlarms = useMemo(() => activeAlarms(state).filter((a) => !a.acknowledged).map((a) => ({ id: a.id, assetId: a.assetId, severity: a.severity })), [state]);
+  const envBoards = useMemo(() => {
+    if (heat !== "noise" || frame) return [];
+    return zoneEnvironment(state).flatMap((z) => {
+      const ms = layout.machines.filter((m) => m.lineId === z.lineId);
+      if (!ms.length) return [];
+      const mid = ms[Math.floor(ms.length / 2)];
+      const name = state.lines.find((l) => l.id === z.lineId)?.name ?? z.lineId;
+      return [{ id: z.lineId, position: P(mid.x, mid.y - 2.2, 3.4), lines: [{ text: `${name} · zone`, tone: "title" as const }, { text: `${z.noiseDb} dB · ${z.temperatureC} °C · ${z.humidityPct}% RH`, tone: z.noiseDb >= 85 ? ("warn" as const) : ("muted" as const) }, { text: `PM2.5 ${z.pm25} µg/m³${z.noiseDb >= 85 ? " · hearing protection" : ""}`, tone: "muted" as const }] }];
+    });
+  }, [heat, frame, state, layout]);
+  const whatIfBoard = useMemo(() => {
+    if (!whatIf) return null;
+    const pm = layout.machines.find((m) => m.m.id === whatIf.assetId);
+    if (!pm) return null;
+    const w = whatIf;
+    const n = (v: number) => v.toLocaleString("en-US");
+    const d = w.plan.output - w.asIs.output;
+    const trip = (h: number | null) => (h === null ? "none" : `h+${Math.round(h)}`);
+    const lines: BoardLine[] = [
+      { text: `What if ${w.change}?`, tone: "title" },
+      { text: `Output ${w.horizonHours} h: ${n(w.asIs.output)} → ${n(w.plan.output)} (${d >= 0 ? "+" : "−"}${n(Math.abs(d))})`, tone: d >= 0 ? "ok" : "warn" },
+      { text: `Trip: ${trip(w.asIs.failureHour)} → ${trip(w.plan.failureHour)}`, tone: w.plan.failureHour === null ? "ok" : w.asIs.failureHour !== null && w.plan.failureHour > w.asIs.failureHour ? "ok" : "bad" },
+      { text: `Late units: ${n(w.asIs.lateUnits)} → ${n(w.plan.lateUnits)}`, tone: w.plan.lateUnits <= w.asIs.lateUnits ? "ok" : "bad" },
+      { text: `Operating cost: $${n(w.asIs.operatingCost)} → $${n(w.plan.operatingCost)}`, tone: "muted" },
+      { text: w.better ? "Better than continuing as is" : "Worse than continuing as is", tone: w.better ? "ok" : "bad" },
+      { text: "Simulated estimate · nothing changed", tone: "muted" },
+    ];
+    return { lines, accent: w.better ? "#22c55e" : "#ef4444", position: P(pm.x, pm.y, machineParts(pm.m.kind).height + 3.3) };
+  }, [whatIf, layout]);
+  useEffect(() => {
+    if (!whatIf) return;
+    const t = setTimeout(() => setWhatIf(null), 60_000);
+    return () => clearTimeout(t);
+  }, [whatIf]);
+
   const boards = useMemo(() => {
     const alarmed = new Map(activeAlarms(state).map((a) => [a.assetId, a]));
+    const states = machineStates(state);
+    const past = frame ? replayStatus(state, frame) : null;
     const ids = new Set<string>([...alarmed.keys(), ...(selected ? [selected] : [])]);
     return [...ids].flatMap((id) => {
       const pm = layout.machines.find((m) => m.m.id === id);
       const a = state.assets.find((x) => x.id === id);
       if (!pm || !a) return [];
       const alarm = alarmed.get(id);
-      const sig = assetSignals(state, a).filter((s) => ["Running", "Throughput", "Vibration", "Temperature", "Health"].includes(s.name));
-      const lines = [
-        { text: `${a.id} · ${a.name}`, tone: "title" as const },
-        ...(alarm ? [{ text: `${alarm.acknowledged ? "ACK · " : ""}${alarm.title}`.slice(0, 36), tone: alarm.acknowledged ? ("muted" as const) : alarm.severity === "critical" ? ("bad" as const) : ("warn" as const) }] : []),
-        ...(id === selected
-          ? sig.map((s) => ({
-              text: `${s.name}: ${typeof s.value === "number" ? (Math.abs(s.value) >= 100 ? s.value.toFixed(0) : s.value.toFixed(1)) : s.value ? "yes" : "no"} ${s.unit}`,
-              tone: s.state === "trip" ? ("bad" as const) : s.state === "alarm" ? ("warn" as const) : ("muted" as const),
-            }))
-          : [{ text: `health ${a.healthScore.toFixed(0)} · ${a.signal.vibration.toFixed(1)} mm/s`, tone: "muted" as const }]),
-      ];
-      return [{ id, lines, accent: alarm ? (alarm.severity === "critical" ? "#ef4444" : "#f59e0b") : "#4c8dff", position: P(pm.x, pm.y, machineParts(pm.m.kind).height + 0.9) }];
+      const ms = states[id];
+      const toneOf = (st: string): BoardLine["tone"] => (st === "trip" ? "bad" : st === "alarm" ? "warn" : "muted");
+      let lines: BoardLine[];
+      let sparks: Spark[] = [];
+      if (frame) {
+        // Replay: what this machine looked like then.
+        const r = frame.readings[id];
+        const ago = state.clock.hour - frame.hour;
+        lines = [
+          { text: `${a.id} · ${a.name}`, tone: "title" },
+          { text: `Replay · ${ago < 1 ? `${Math.round(ago * 60)} min` : `${ago.toFixed(1)} h`} ago`, tone: "info" },
+          { text: `Status then: ${past?.[id] ?? "unknown"}`, tone: past?.[id] === "critical" || past?.[id] === "offline" ? "bad" : past?.[id] === "warning" ? "warn" : "ok" },
+          ...(r ? [{ text: `Vibration ${r.vibration.toFixed(2)} mm/s · ${r.temperature.toFixed(1)} °C`, tone: "muted" as const }, { text: `${r.powerKw.toFixed(1)} kW · ${Math.round(r.throughput)} u/h`, tone: "muted" as const }] : []),
+        ];
+      } else if (id === selected) {
+        const sig = assetSignals(state, a, { full: false });
+        const v = (n: string) => sig.find((x) => x.name === n);
+        const rul = remainingLife(state, a);
+        const ct = cycleTime(a);
+        const e = electrical(state, a);
+        const pv = processValues(state, a);
+        const rejects = sig.find((x) => x.name === "Rejects caused (8 h)")?.value as number | undefined;
+        const fmtV = (x: number) => (Math.abs(x) >= 100 ? x.toFixed(0) : x.toFixed(1));
+        lines = [
+          { text: `${a.id} · ${a.name}`, tone: "title" },
+          ...(alarm ? [{ text: `${alarm.acknowledged ? "ACK · " : ""}${alarm.title}`, tone: alarm.acknowledged ? ("muted" as const) : alarm.severity === "critical" ? ("bad" as const) : ("warn" as const) }] : []),
+          ...(ms ? [{ text: `${ms.bottleneck && ms.state === "running" ? "BOTTLENECK" : ms.state.toUpperCase()} · ${ms.reason.replace(/^Bottleneck: /, "")}`, tone: ms.state === "fault" ? ("bad" as const) : ms.state === "starved" || ms.state === "blocked" ? ("warn" as const) : ms.bottleneck ? ("info" as const) : ("ok" as const) }] : []),
+          { text: `Life: ${rul.summary}`, tone: rul.tone },
+          { text: `${Math.round(a.signal.throughput)} u/h · cycle ${ct.actualS === null ? "—" : `${ct.actualS.toFixed(1)} s`} (ideal ${ct.idealS.toFixed(1)} s)`, tone: "muted" },
+          { text: `Vibration ${a.signal.vibration.toFixed(2)} mm/s · ${a.signal.temperature.toFixed(1)} °C`, tone: toneOf(v("Vibration")?.state === "ok" ? (v("Temperature")?.state ?? "ok") : (v("Vibration")?.state ?? "ok")) },
+          { text: `${a.signal.powerKw.toFixed(1)} kW · ${e.currentA.toFixed(1)} A · PF ${e.powerFactor.toFixed(2)} · ${e.voltageV.toFixed(0)} V`, tone: "muted" },
+          ...(pv.length ? [{ text: pv.slice(0, 2).map((p) => `${p.name} ${fmtV(p.value)}${p.unit === "%" ? "%" : ` ${p.unit}`}`).join(" · "), tone: pv.some((p) => p.limits && p.value >= p.limits.alarm) ? ("warn" as const) : ("muted" as const) }] : []),
+          { text: `Health ${a.healthScore.toFixed(0)}/100${rejects ? ` · ${rejects} rejects caused (8 h)` : ""}`, tone: a.healthScore < 45 ? "bad" : a.healthScore < 75 ? "warn" : "muted" },
+        ];
+        const hist = (state.telemetry[a.id] ?? []).slice(-36);
+        sparks = [
+          { label: "Vibration 6 h", values: hist.map((r) => r.vibration), color: "#60a5fa", limit: a.thresholds.vibrationAlarm },
+          { label: "Temp 6 h", values: hist.map((r) => r.temperature), color: "#f97316", limit: a.thresholds.temperatureAlarm },
+          { label: "Power 6 h", values: hist.map((r) => r.powerKw), color: "#a78bfa" },
+        ];
+      } else {
+        const rul = remainingLife(state, a);
+        lines = [
+          { text: `${a.id} · ${a.name}`, tone: "title" },
+          ...(alarm ? [{ text: `${alarm.acknowledged ? "ACK · " : ""}${alarm.title}`, tone: alarm.acknowledged ? ("muted" as const) : alarm.severity === "critical" ? ("bad" as const) : ("warn" as const) }] : []),
+          { text: rul.hoursToTrip !== null || a.mode === "down" ? rul.summary : `health ${a.healthScore.toFixed(0)} · ${a.signal.vibration.toFixed(1)} mm/s`, tone: rul.tone === "ok" ? "muted" : rul.tone },
+        ];
+      }
+      return [{ id, lines, sparks, accent: frame ? "#38bdf8" : alarm ? (alarm.severity === "critical" ? "#ef4444" : "#f59e0b") : "#4c8dff", position: P(pm.x, pm.y, machineParts(pm.m.kind).height + 0.9) }];
     });
-  }, [state, layout, selected]);
+  }, [state, layout, selected, frame]);
+  const boarded = useMemo(() => new Set(boards.map((b) => b.id)), [boards]);
 
   const selectedPos = useMemo<[number, number, number] | null>(() => {
     const pm = selected ? layout.machines.find((m) => m.m.id === selected) : null;
@@ -450,45 +782,158 @@ export function TwinVR({ state }: { state: FactoryState }) {
     return pm ? (P(pm.x, pm.y + 1.6, 1.0) as [number, number, number]) : null;
   }, [selected, layout]);
 
+  tableRef.current = (on: boolean) => {
+    if (on !== tableMode || xrMode === "immersive-ar") toggleTable();
+  };
+  const handItems: HandMenuItem[] = [
+    { key: "table", label: xrMode === "immersive-ar" ? "Move table" : tableVR ? "Full size" : "Table", color: "#14b8a6", active: tableMode, onPress: toggleTable },
+    { key: "recenter", label: "Recenter", color: "#64748b", onPress: recenter },
+    { key: "seated", label: seated ? "Seated" : "Standing", color: "#8b5cf6", active: seated, onPress: () => setSeated(!seated) },
+    { key: "perf", label: questPerf ? "Perf: 72fps" : "Quality", color: "#eab308", active: questPerf, onPress: () => setQuestPerf(!questPerf) },
+    { key: "find", label: findOpen ? "Hide find" : "Find", color: "#4c8dff", active: findOpen, onPress: () => setFindOpen(!findOpen) },
+    { key: "heat", label: heat ? HEAT_LABEL[heat] : "Heat", color: "#f97316", active: !!heat, onPress: () => setHeat(nextHeat(heat)) },
+    { key: "flow", label: flowOn ? "Flow on" : "Flow off", color: "#22c55e", active: flowOn, onPress: () => setFlowOn(!flowOn) },
+    { key: "replay", label: replay ? "Live" : "Replay 6 h", color: "#38bdf8", active: !!replay, onPress: () => startReplay(replay ? null : 6) },
+  ];
+
   if (!pal) return <div className="h-full w-full" />;
   return (
     <div className="relative h-full w-full" data-testid="twin-vr">
-      <Canvas camera={{ fov: 70, near: 0.05, far: 400, position: eye.toArray() }} onCreated={({ gl }) => void (gl.toneMapping = THREE.ACESFilmicToneMapping)} aria-label="The plant in VR">
+      <Canvas dpr={questPerf ? [1, 1] : [1, 1.5]} camera={{ fov: 70, near: 0.01, far: 400, position: eye.toArray() }} onCreated={({ gl }) => void (gl.toneMapping = THREE.ACESFilmicToneMapping)} aria-label="The plant in VR">
         <XR store={store}>
           <XROrigin ref={originRef} position={originPos}>
             {/* Exit VR: always within reach, at waist height in front of you; moves and turns with you. */}
-            {inXR && <Button3D label="Exit VR" color="#64748b" position={[0.3, 0.85, -0.7]} width={0.5} onPress={exitXR} />}
-            {inXR && <Button3D label={findOpen ? "Hide Find" : "Find…"} color="#4c8dff" position={[-0.3, 0.85, -0.7]} width={0.5} onPress={() => setFindOpen(!findOpen)} />}
+            {/* Waist-height controls within arm's reach while seated. In table view they swing to your left so the table stays clear. */}
+            {inXR && (
+              <group
+                position={tableMode ? [-0.55, seated ? -0.16 : 0, 0.1] : [0, seated ? -0.16 : 0, seated ? 0.08 : 0]}
+                rotation-y={tableMode ? 0.75 : 0}
+                rotation-x={seated ? 0.22 : 0}
+              >
+                <Button3D label="Exit VR" color="#64748b" position={[0.3, 0.88, -0.7]} width={0.5} onPress={exitXR} />
+                <Button3D label={xrMode === "immersive-ar" ? "Move table" : tableVR ? "Full size" : "Table view"} color="#14b8a6" width={0.5} position={[-0.85, 0.88, -0.7]} onPress={toggleTable} />
+                <Button3D label="Recenter" color="#64748b" width={0.5} position={[0.85, 0.88, -0.7]} onPress={recenter} />
+                <Button3D label={findOpen ? "Hide Find" : "Find…"} color="#4c8dff" position={[-0.3, 0.88, -0.7]} width={0.5} onPress={() => setFindOpen(!findOpen)} />
+                <VoiceRig3D voice={voice} />
+                <Button3D label={seated ? "Seated: on" : "Seated: off"} color="#8b5cf6" width={0.5} active={seated} position={[-0.85, 0.52, -0.7]} onPress={() => setSeated(!seated)} />
+                <Button3D label={questPerf ? "Perf: 72fps" : "Quality"} color="#eab308" width={0.5} active={questPerf} position={[0.85, 0.52, -0.7]} onPress={() => setQuestPerf(!questPerf)} />
+                <Button3D label={heat ? `Heat: ${HEAT_LABEL[heat]}` : "Heat: off"} color="#f97316" width={0.52} active={!!heat} position={[-0.35, 0.52, -0.7]} onPress={() => setHeat(nextHeat(heat))} />
+                <Button3D label={flowOn ? "Flow: on" : "Flow: off"} color="#22c55e" width={0.4} active={flowOn} position={[0.12, 0.52, -0.7]} onPress={() => setFlowOn(!flowOn)} />
+                <Button3D label={replay ? "Live" : "Replay 6 h"} color="#38bdf8" width={0.46} active={!!replay} position={[0.55, 0.52, -0.7]} onPress={() => startReplay(replay ? null : 6)} />
+              </group>
+            )}
+            {tableMode && !table && xrMode === "immersive-ar" && (
+              <Board lines={[{ text: "Look down at a table or desk", tone: "title" }, { text: "Hold still to place the plant, or pinch", tone: "muted" }]} accent="#4c8dff" position={[0, 1.3, -0.9]} width={0.5} />
+            )}
             {inXR && findOpen && <FindMenu index={index} onPick={goTo} onClose={() => setFindOpen(false)} />}
+            {inXR && heat && <Board lines={[{ text: HEAT_LABEL[heat], tone: "title" }, { text: HEAT_LEGEND[heat], tone: "muted" }]} accent="#f97316" position={[-0.8, 1.42, -1.1]} width={0.6} />}
+            {inXR && replay && frame && <Board lines={replayLines(state, frame.hour)} accent="#38bdf8" position={[0.8, 1.5, -1.2]} width={0.7} />}
+            {inXR && recordingOn && (
+              <group position={[0, 1.82, -1.2]}>
+                <Board
+                  lines={[
+                    { text: "● REC · NEW · Meta Quest WebXR Spatial Twin", tone: "title" },
+                    ...(voice.heard ? [{ text: `🎙 “${voice.heard}”`, tone: "info" as const }] : []),
+                    ...(voice.reply ? [{ text: voice.reply.slice(0, 140), tone: "muted" as const }] : []),
+                  ]}
+                  accent="#ef4444"
+                  position={[0, 0, 0]}
+                  width={0.88}
+                />
+              </group>
+            )}
+            {inXR && questPerf && (
+              <group position={[-0.88, 1.62, -1.1]} rotation={[0, 0.35, 0]}>
+                <Board
+                  lines={[
+                    { text: `⚡ Quest Perf · 72 FPS`, tone: "title" },
+                    { text: "Locked 72Hz · Foveation 1.0 · Fixed DPR 1.0", tone: "muted" },
+                  ]}
+                  accent="#eab308"
+                  position={[0, 0, 0]}
+                  width={0.52}
+                />
+              </group>
+            )}
           </XROrigin>
-          <Locomotion origin={originRef} />
+          {!tableMode && <Locomotion origin={originRef} />}
           {/* Teleport: push a thumbstick forward (or pinch-and-hold with hands), aim at the floor, release. */}
-          <TeleportTarget onTeleport={(p) => originRef.current?.position.set(p.x, 0, p.z)}>
-            <mesh rotation-x={-Math.PI / 2} position={[center.x, 0.002, center.z]}>
-              <planeGeometry args={[(b.x1 - b.x0) + 2, (b.y1 - b.y0) + 6]} />
-              <meshBasicMaterial transparent opacity={0} depthWrite={false} />
-            </mesh>
-          </TeleportTarget>
+          {!tableMode && (
+            <TeleportTarget onTeleport={(p) => originRef.current?.position.set(p.x, 0, p.z)}>
+              <mesh rotation-x={-Math.PI / 2} position={[center.x, 0.002, center.z]}>
+                <planeGeometry args={[(b.x1 - b.x0) + 2, (b.y1 - b.y0) + 6]} />
+                <meshBasicMaterial transparent opacity={0} depthWrite={false} />
+              </mesh>
+            </TeleportTarget>
+          )}
           <WalkControls eye={eye} target={lookAt} bounds={walkBounds} jump={jump} />
-          <Scene
-            pal={pal}
-            quality="standard"
-            layout={layout}
-            paths={paths}
-            selectedId={selected}
-            onSelect={(id) => setSelected(id && state.assets.some((a) => a.id === id) ? id : null)}
-            cameras={false}
-            affected={() => true}
-            highlight={null}
-            registerAmr={() => undefined}
-            flows={flows}
-            plantRef={plantRef}
-            facility={{ id: state.profile.id, name: state.profile.name }}
-          />
-          {boards.map((bd) => (
-            <Board key={bd.id} lines={bd.lines} accent={bd.accent} position={bd.position} width={2.2} />
-          ))}
-          {selectedPos && selected && <ControlPanel state={state} assetId={selected} position={selectedPos} />}
+          <GripTalk voice={voice} />
+          <FpsProbe />
+          {/* In VR the plant has a sky; in passthrough the background stays clear so your room shows. */}
+          {inXR && xrMode === "immersive-vr" && <color attach="background" args={[pal.theme === "dark" ? "#0b1220" : "#dfe6ee"]} />}
+          <CameraRef target={camRef} />
+          {inXR && <HandMenu items={handItems} label={tableMode ? "Tabletop" : heat ? HEAT_LABEL[heat] : "Twin"} />}
+          {/* Passthrough: find a real table and pinch to put the plant on it. */}
+          {tableMode && !table && xrMode === "immersive-ar" && <TablePlacer onPlace={(at, yaw) => setTable({ at, yaw })} />}
+          {/* Virtual command desk slab underneath the miniature factory when in table mode (non-passthrough) */}
+          {tableMode && table && xrMode !== "immersive-ar" && (
+            <group position={table.at} rotation-y={table.yaw}>
+              <mesh position={[0, -0.015, 0]} receiveShadow>
+                <boxGeometry args={[Math.max(1.1, span * tableScale + 0.15), 0.03, Math.max(0.7, span * tableScale + 0.15)]} />
+                <meshStandardMaterial color="#0b1120" roughness={0.35} metalness={0.8} />
+              </mesh>
+              <mesh position={[0, 0.001, 0]} rotation-x={-Math.PI / 2}>
+                <planeGeometry args={[Math.max(1.08, span * tableScale + 0.13), Math.max(0.68, span * tableScale + 0.13)]} />
+                <meshBasicMaterial color="#38bdf8" transparent opacity={0.12} wireframe />
+              </mesh>
+            </group>
+          )}
+          {(!tableMode || table) && (
+            <group position={tableMode && table ? table.at : undefined} rotation-y={tableMode && table ? table.yaw : 0} scale={tableMode ? tableScale : 1}>
+              <group position={tableMode ? [-center.x, 0, -center.z] : [0, 0, 0]}>
+                <Scene
+                  pal={pal}
+                  quality="standard"
+                  layout={layout}
+                  paths={paths}
+                  selectedId={selected}
+                  onSelect={(id) => setSelected(id && state.assets.some((a) => a.id === id) ? id : null)}
+                  cameras={false}
+                  affected={alwaysAffected}
+                  highlight={null}
+                  registerAmr={noRegister}
+                  flows={flows}
+                  plantRef={plantRef}
+                  facility={facility}
+                />
+                {boards.map((bd) => {
+                  // On the table, boards keep a readable real-world size (≈ 35 cm) and float clear of the model.
+                  const w = tableMode ? 0.36 / tableScale : bd.sparks.length ? 2.6 : 2.2;
+                  const pos: [number, number, number] = tableMode ? [bd.position[0], bd.position[1] + 0.2 / tableScale, bd.position[2]] : bd.position;
+                  return <Board key={bd.id} lines={bd.lines} sparks={bd.sparks} accent={bd.accent} position={pos} width={w} />;
+                })}
+                {selectedPos && selected && !replay && (
+                  <group position={tableMode ? [selectedPos[0], 0.05 / tableScale, selectedPos[2] + 0.12 / tableScale] : selectedPos} scale={tableMode ? 0.22 / tableScale : 1}>
+                    <ControlPanel state={state} assetId={selected} position={[0, 0, 0]} onWhatIf={(c) => runWhatIf(selected, c)} />
+                  </group>
+                )}
+                {heat && <HeatOverlay cells={cells} layout={layout} ghost={!!replay} floorOnly={boarded} tagScale={tableMode ? 2.5 : 1} />}
+                {flowOn && !replay && <FlowOverlay state={state} layout={layout} flows={flows} />}
+                <AlarmSounds alarms={soundAlarms} layout={layout} enabled={!muted && !replay} />
+                {envBoards.map((eb) => (
+                  <Board key={`env-${eb.id}`} lines={eb.lines} accent="#14b8a6" position={eb.position} width={tableMode ? 0.3 / tableScale : 2.1} />
+                ))}
+                {whatIfBoard && (
+                  <Board
+                    lines={whatIfBoard.lines}
+                    accent={whatIfBoard.accent}
+                    position={tableMode ? [whatIfBoard.position[0], whatIfBoard.position[1] + 0.32 / tableScale, whatIfBoard.position[2]] : whatIfBoard.position}
+                    width={tableMode ? 0.42 / tableScale : 2.6}
+                  />
+                )}
+              </group>
+            </group>
+          )}
         </XR>
       </Canvas>
       {/* On <body>, above everything (including the headset simulator's own layer). */}
@@ -551,7 +996,7 @@ export function TwinVR({ state }: { state: FactoryState }) {
           </span>
         </p>
       </div>
-      <div hidden={inXR} className="absolute bottom-4 left-1/2 flex -translate-x-1/2 gap-2" data-testid="vr-buttons">
+      <div hidden={inXR} className="absolute bottom-4 left-1/2 flex -translate-x-1/2 flex-wrap items-center justify-center gap-2" data-testid="vr-buttons">
         <button
           onClick={() => void store.enterVR()}
           disabled={!support?.vr}
@@ -564,9 +1009,146 @@ export function TwinVR({ state }: { state: FactoryState }) {
           disabled={!support?.ar}
           className="flex h-10 items-center gap-2 rounded-xl border border-line bg-surface px-4 text-[13px] font-medium text-ink shadow-lg disabled:opacity-40"
         >
-          <Smartphone className="h-4 w-4" /> Enter passthrough AR
+          <Table2 className="h-4 w-4" /> Tabletop MR (passthrough)
+        </button>
+        <button
+          onClick={toggleTable}
+          className={cn(
+            "flex h-10 items-center gap-1.5 rounded-xl border px-3.5 text-[13px] font-medium shadow-lg transition-colors",
+            tableMode ? "border-accent bg-accent/15 text-accent-ink font-semibold" : "border-line bg-surface text-ink hover:bg-surface-2",
+          )}
+          data-testid="toggle-table-mode"
+          title="Toggle Tabletop Miniature View"
+        >
+          <Table2 className="h-4 w-4" /> Table view {tableMode ? "on" : "off"}
+        </button>
+        <button
+          onClick={() => setPrepareOpen(true)}
+          className="flex h-10 items-center gap-1.5 rounded-xl border border-line bg-surface px-3.5 text-[13px] font-medium text-ink shadow-lg hover:bg-surface-2"
+          data-testid="prepare-vr-demo-btn"
+          title="Open VR Demo Preparation Sheet"
+        >
+          <Sparkles className="h-4 w-4 text-accent" /> Prepare VR demo
+        </button>
+        <button
+          onClick={recordingToggle}
+          className={cn(
+            "flex h-10 items-center gap-1.5 rounded-xl border px-3.5 text-[13px] font-medium shadow-lg transition-colors",
+            recordingOn ? "border-red-500 bg-red-500/15 text-red-400 font-semibold" : "border-line bg-surface text-ink hover:bg-surface-2",
+          )}
+          data-testid="toggle-recording-btn"
+          title="Toggle Hackathon Recording Overlay (Shift + C)"
+        >
+          <span className={cn("h-2.5 w-2.5 rounded-full", recordingOn ? "bg-red-500 animate-pulse" : "bg-muted")} />
+          REC {recordingOn ? "On" : "(Shift+C)"}
         </button>
       </div>
+      {!inXR && <VoiceDock voice={voice} />}
+      {!inXR && (
+        <div className="absolute top-14 right-3 z-10 flex w-[min(310px,calc(100%-24px))] flex-col gap-2" data-testid="vr-overlays">
+          <div className="rounded-lg border border-line bg-surface/92 p-2 text-[12px] shadow-[var(--shadow-card)] backdrop-blur">
+            <div className="mb-2 flex items-center justify-between border-b border-line pb-1.5">
+              <span className="text-[11px] font-semibold text-ink">Spatial Mode</span>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => setSeated(!seated)}
+                  className={cn("flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10.5px]", seated ? "border-purple-500/60 bg-purple-500/15 text-purple-300 font-medium" : "border-line text-muted hover:text-ink")}
+                  title="Toggle Seated Desk vs Standing Eye Height"
+                >
+                  <Armchair className="h-3 w-3" /> {seated ? "Seated" : "Standing"}
+                </button>
+                <button
+                  onClick={() => setQuestPerf(!questPerf)}
+                  className={cn("flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10.5px]", questPerf ? "border-amber-500/60 bg-amber-500/15 text-amber-300 font-medium" : "border-line text-muted hover:text-ink")}
+                  title="Toggle Quest 72Hz Performance Mode"
+                >
+                  <Zap className="h-3 w-3" /> {questPerf ? "72fps" : "Quality"}
+                </button>
+                <button
+                  onClick={recenter}
+                  className="rounded border border-line px-1.5 py-0.5 text-[10.5px] text-muted hover:text-ink"
+                  title="Recenter camera viewpoint"
+                >
+                  Recenter
+                </button>
+              </div>
+            </div>
+            <p className="mb-1.5 flex items-center gap-1.5 font-medium text-ink">
+              <Flame className="h-3.5 w-3.5 text-accent" /> Heatmap
+              <FpsChip questPerf={questPerf} />
+            </p>
+            <div className="flex flex-wrap gap-1" role="group" aria-label="Heatmap metric">
+              {[null, ...HEAT_METRICS].map((m) => (
+                <button
+                  key={m ?? "off"}
+                  onClick={() => setHeat(m)}
+                  aria-pressed={heat === m}
+                  className={`rounded-md border px-2 py-0.5 text-[11.5px] ${heat === m ? "border-accent bg-accent text-white" : "border-line text-ink-2 hover:bg-surface-2"}`}
+                >
+                  {m ? HEAT_LABEL[m] : "Off"}
+                </button>
+              ))}
+            </div>
+            {heat && <p className="mt-1.5 text-[11px] leading-snug text-muted">{HEAT_LEGEND[heat]}</p>}
+            <div className="mt-2 flex items-center gap-2 border-t border-line pt-2">
+              <button onClick={() => setFlowOn(!flowOn)} aria-pressed={flowOn} className={`flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11.5px] ${flowOn ? "border-success/60 text-success-ink" : "border-line text-muted"}`}>
+                <Waves className="h-3 w-3" /> Product flow {flowOn ? "on" : "off"}
+              </button>
+              <span className="text-[11px] text-muted">green flowing · amber starved · red blocked</span>
+            </div>
+          </div>
+          <div className="rounded-lg border border-line bg-surface/92 p-2 text-[12px] shadow-[var(--shadow-card)] backdrop-blur" data-testid="vr-replay">
+            <div className="flex items-center gap-1.5">
+              <History className="h-3.5 w-3.5 text-accent" />
+              <span className="font-medium text-ink">Replay</span>
+              <span className="ml-auto tabular text-muted">{replay ? `${(state.clock.hour - replay.hour).toFixed(1)} h ago` : "live"}</span>
+            </div>
+            <input
+              type="range"
+              aria-label="Replay time"
+              className="mt-1.5 w-full accent-[var(--color-accent)]"
+              min={replayStart(state)}
+              max={state.clock.hour}
+              step={1 / 6}
+              value={replay?.hour ?? state.clock.hour}
+              onChange={(e) => {
+                const h = Number(e.target.value);
+                if (h >= state.clock.hour - 1 / 12) return setReplay(null);
+                setReplay({ hour: h, playing: false });
+                if (!heat) setHeat("health");
+              }}
+            />
+            <div className="mt-1 flex gap-1.5">
+              <button onClick={() => (replay ? setReplay({ ...replay, playing: !replay.playing }) : startReplay(6))} className="flex items-center gap-1 rounded-md border border-line px-2 py-0.5 text-[11.5px] text-ink-2 hover:bg-surface-2">
+                {replay?.playing ? <Pause className="h-3 w-3" /> : <Play className="h-3 w-3" />} {replay ? (replay.playing ? "Pause" : "Play") : "Replay last 6 h"}
+              </button>
+              {replay && (
+                <button onClick={() => setReplay(null)} className="rounded-md border border-line px-2 py-0.5 text-[11.5px] text-ink-2 hover:bg-surface-2">
+                  Back to live
+                </button>
+              )}
+            </div>
+            {replay && frame && (
+              <ul className="mt-1.5 space-y-0.5 text-[11px] text-muted">
+                {replayLines(state, frame.hour).slice(1).map((l, i) => (
+                  <li key={i}>{l.text}</li>
+                ))}
+              </ul>
+            )}
+          </div>
+          {whatIf && (
+            <div className={`rounded-lg border bg-surface/95 p-2 text-[12px] shadow-[var(--shadow-card)] backdrop-blur ${whatIf.better ? "border-success/60" : "border-danger/60"}`} data-testid="vr-whatif">
+              <p className="flex items-center gap-1.5 font-medium text-ink">
+                <Activity className="h-3.5 w-3.5 text-accent" /> What if {whatIf.change}?
+              </p>
+              <p className="mt-1 leading-snug text-ink-2">{whatIf.summary.replace(/^What if [^:]+: /, "")}</p>
+              <button onClick={() => setWhatIf(null)} className="mt-1 text-[11px] text-muted hover:text-ink">
+                Dismiss
+              </button>
+            </div>
+          )}
+        </div>
+      )}
       {support && !headset && !inXR && (
         <p className="absolute bottom-16 left-1/2 -translate-x-1/2 rounded-md bg-surface/90 px-3 py-1 text-center text-[11.5px] text-muted">
           No headset found, so you&apos;re walking on screen. To enter VR, open this page in Meta Quest Browser.
@@ -589,6 +1171,16 @@ export function TwinVR({ state }: { state: FactoryState }) {
           {simulating ? "Stop simulating the headset" : "Simulate Quest headset (localhost)"}
         </button>
       )}
+      <PrepareVRDemoDialog
+        open={prepareOpen}
+        onOpenChange={setPrepareOpen}
+        seated={seated}
+        onToggleSeated={() => setSeated(!seated)}
+        questPerf={questPerf}
+        onTogglePerf={() => setQuestPerf(!questPerf)}
+        recordingOn={recordingOn}
+        onToggleRecording={recordingToggle}
+      />
     </div>
   );
 }

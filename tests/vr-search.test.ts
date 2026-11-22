@@ -19,6 +19,10 @@ describe("VR search", () => {
 
   it("finds by id, name, type and words, best match first", () => {
     expect(findEntries(index, "a-rob-03")[0].assetId).toBe("A-ROB-03");
+    // As speech transcription returns ids.
+    expect(findEntries(index, "arob03")[0].assetId).toBe("A-ROB-03");
+    expect(findEntries(index, "a rob 03")[0].assetId).toBe("A-ROB-03");
+    expect(findEntries(index, "A ROB 03.")[0].assetId).toBe("A-ROB-03");
     expect(findEntries(index, "robot").some((e) => e.kind === "robot")).toBe(true);
     expect(findEntries(index, "robot").some((e) => e.kind === "machine")).toBe(true);
     expect(findEntries(index, "assembly line a")[0].kind).toBe("line");

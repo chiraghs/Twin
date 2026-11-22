@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Bot, ChevronDown, FastForward, Menu, Pause, Play, RotateCcw, Siren, Sparkles, Database, Cpu } from "lucide-react";
+import { Bot, ChevronDown, FastForward, Glasses, Menu, Pause, Play, RotateCcw, Siren, Sparkles, Database, Cpu } from "lucide-react";
 import { useCopilot } from "@/client/copilot";
 import { INTEGRATION_STATE, useIntegrations } from "@/client/integrations";
 import { useFactory, useUi } from "@/client/store";
@@ -13,6 +13,7 @@ import { Badge, Button, Tip } from "../ui/primitives";
 import { ThemeToggle } from "../theme-toggle";
 import { AGENT_META } from "@/domain/agents/context";
 import { FacilitySwitcher } from "./facility-switcher";
+import { useAdmin } from "@/client/admin";
 
 function usePopover() {
   const [open, setOpen] = useState(false);
@@ -42,6 +43,17 @@ export function DemoControls({ compact = false }: { compact?: boolean }) {
   const busy = useFactory((s) => s.busy);
   const setGuide = useUi((s) => s.setGuide);
 
+  /** One click to a repeatable VR take: fresh crisis, admin session checked, straight into the VR tab. */
+  const prepareVr = async () => {
+    setOpen(false);
+    if (await crisis()) {
+      setGuide({ active: false, step: 0 });
+      await useAdmin.getState().load();
+      useUi.getState().setTwinView("vr");
+      router.push("/twin?view=vr");
+    }
+  };
+
   const runCrisis = async () => {
     setOpen(false);
     if (await crisis()) {
@@ -64,6 +76,13 @@ export function DemoControls({ compact = false }: { compact?: boolean }) {
             <span>
               <span className="block text-[13px] font-semibold text-ink">Run Factory Crisis Demo</span>
               <span className="block text-xs leading-relaxed text-muted">Reset, inject joint-4 bearing damage on A-ROB-03 and follow the guided investigation.</span>
+            </span>
+          </button>
+          <button onClick={prepareVr} className="flex w-full items-start gap-3 rounded-lg p-2.5 text-left hover:bg-surface-2" data-testid="prepare-vr-demo">
+            <Glasses className="mt-0.5 h-4 w-4 text-accent" />
+            <span>
+              <span className="block text-[13px] font-semibold text-ink">Prepare VR demo</span>
+              <span className="block text-xs leading-relaxed text-muted">Same crisis, then straight into the VR tab. Shift + C shows recording badges and captions.</span>
             </span>
           </button>
           <div className="my-1 h-px bg-line" />

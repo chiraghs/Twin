@@ -1,5 +1,6 @@
 import { ARCHETYPES } from "@/domain/archetypes";
 import type { Layout } from "@/domain/layout";
+import { robotBatteries } from "@/domain/process-signals";
 import type { FactoryState } from "@/domain/types";
 import type { AmrPath } from "./amr-paths";
 
@@ -53,9 +54,12 @@ export function findIndex(state: FactoryState, layout: Layout, paths: AmrPath[])
     const mid = ms[Math.floor(ms.length / 2)];
     out.push(entry({ key: `l:${l.id}`, kind: "line", label: l.name, sub: `${l.kind} line · ${l.state} · ${ms.length} machines`, x: mid.x, y: mid.y }, [l.id]));
   }
+  const battery = new Map(robotBatteries(state, paths.map((p) => p.amr)).map((b) => [b.id, b]));
   for (const p of paths) {
     const [x, y] = p.points[0] ?? [0, 0];
-    out.push(entry({ key: `r:${p.amr.id}`, kind: "robot", label: `${p.amr.id} · ${p.amr.name}`, sub: `${p.amr.fleetName} · ${p.amr.status}${p.amr.reason ? ` (${p.amr.reason})` : ""}`, x, y }, ["amr", "agv", "robot", p.amr.robotType, p.amr.mission]));
+    const bt = battery.get(p.amr.id);
+    const charge = bt ? ` · battery ${bt.pct}%${bt.charging ? " charging" : bt.low ? " low" : ""}` : "";
+    out.push(entry({ key: `r:${p.amr.id}`, kind: "robot", label: `${p.amr.id} · ${p.amr.name}`, sub: `${p.amr.fleetName} · ${p.amr.status}${p.amr.reason ? ` (${p.amr.reason})` : ""}${charge}`, x, y }, ["amr", "agv", "robot", p.amr.robotType, p.amr.mission]));
   }
   for (const c of state.cameras) {
     const near = (c.assetId && pos.get(c.assetId)) || (c.covers[0] && pos.get(c.covers[0])) || null;
@@ -72,16 +76,25 @@ export function findIndex(state: FactoryState, layout: Layout, paths: AmrPath[])
   return out;
 }
 
-/** All words must match; exact id and label-prefix matches rank first. */
+const compact = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+
+/**
+ * All words must match; exact id and label-prefix matches rank first. Ids also match with their
+ * punctuation and spaces removed, as speech transcription often returns them ("arob03", "a rob 03"
+ * → A-ROB-03).
+ */
 export function findEntries(index: FindEntry[], query: string, limit = 12): FindEntry[] {
   const q = query.trim().toLowerCase();
   if (!q) return [];
   const words = q.split(/\s+/);
+  const cq = compact(q);
   const scored: { e: FindEntry; s: number }[] = [];
   for (const e of index) {
-    if (!words.every((w) => e.hay.includes(w))) continue;
+    const id = compact(e.label.split(" · ")[0]);
+    const idHit = cq.length >= 3 && (id === cq || (cq.length >= 4 && id.startsWith(cq)));
+    if (!idHit && !words.every((w) => e.hay.includes(w) || compact(e.hay).includes(compact(w)))) continue;
     const label = e.label.toLowerCase();
-    const s = (label.startsWith(q) ? 0 : label.includes(q) ? 1 : 2) * 10 + (e.kind === "machine" ? 0 : 1);
+    const s = (idHit && id === cq ? -1 : label.startsWith(q) ? 0 : label.includes(q) ? 1 : 2) * 10 + (e.kind === "machine" ? 0 : 1);
     scored.push({ e, s });
   }
   return scored.sort((a, b) => a.s - b.s || a.e.label.localeCompare(b.e.label)).slice(0, limit).map((x) => x.e);

@@ -3,6 +3,7 @@
  * Pure functions of the factory state, so the browser and the server agree on every value.
  */
 import { round } from "./math";
+import { MACHINE_STATE_CODE, cycleTime, electrical, machineStates, partCounts, processValues, remainingLife } from "./process-signals";
 import type { Asset, FactoryState } from "./types";
 
 const STOPPED = new Set(["down", "maintenance", "changeover", "idle"]);
@@ -46,10 +47,19 @@ export interface LiveSignal {
   state: "ok" | "alarm" | "trip";
   /** The command that changes this signal in commissioning mode, if any. */
   command?: SignalCommand;
+  /** Enumerated signals (machine state): the value is a code, this is its meaning. */
+  text?: string;
+  /** Grouping for display: run, measured, electrical, process, quality, prediction. */
+  group?: "run" | "measured" | "electrical" | "process" | "quality" | "prediction";
+}
+
+/** Signals that are cheap to compute every frame; `full` adds the prediction (trend fit). */
+export interface SignalOptions {
+  full?: boolean;
 }
 
 /** The signals one machine exposes: run state, setpoint and the measured values. */
-export function assetSignals(state: FactoryState, asset: Asset): LiveSignal[] {
+export function assetSignals(state: FactoryState, asset: Asset, opts: SignalOptions = { full: true }): LiveSignal[] {
   const s = asset.signal;
   const t = asset.thresholds;
   const level = (v: number, alarm: number, trip: number): LiveSignal["state"] => (v >= trip ? "trip" : v >= alarm ? "alarm" : "ok");
@@ -67,6 +77,29 @@ export function assetSignals(state: FactoryState, asset: Asset): LiveSignal[] {
   ];
   const line = state.lines.find((l) => l.assetIds[l.assetIds.length - 1] === asset.id);
   if (line) out.push({ id: id("OutputCount"), assetId: asset.id, name: "Line output (8 h)", kind: "number", value: lineOutput(state, line.id), unit: "units", state: "ok" });
+
+  const ms = machineStates(state)[asset.id];
+  if (ms) {
+    const st: LiveSignal["state"] = ms.state === "fault" ? "trip" : ms.state === "running" || ms.state === "maintenance" || ms.state === "changeover" ? "ok" : "alarm";
+    out.push({ id: id("State"), assetId: asset.id, name: "Machine state", kind: "number", value: MACHINE_STATE_CODE[ms.state], unit: "", text: ms.state, state: st, group: "run" });
+  }
+  const ct = cycleTime(asset);
+  out.push({ id: id("CycleTime"), assetId: asset.id, name: "Cycle time", kind: "number", value: ct.actualS ?? 0, unit: "s", state: ct.lossPct !== null && ct.lossPct > 25 && ms?.bottleneck ? "alarm" : "ok", text: ct.actualS === null ? "not producing" : `ideal ${ct.idealS} s`, group: "measured" });
+  const e = electrical(state, asset);
+  out.push(
+    { id: id("Current"), assetId: asset.id, name: "Motor current", kind: "number", value: e.currentA, unit: "A", state: "ok", group: "electrical" },
+    { id: id("Voltage"), assetId: asset.id, name: "Supply voltage", kind: "number", value: e.voltageV, unit: "V", limits: { alarm: 420, trip: 440 }, state: level(e.voltageV, 420, 440), group: "electrical" },
+    { id: id("PowerFactor"), assetId: asset.id, name: "Power factor", kind: "number", value: e.powerFactor, unit: "", state: e.powerFactor < 0.7 && asset.mode === "running" ? "alarm" : "ok", group: "electrical" },
+  );
+  for (const p of processValues(state, asset)) {
+    out.push({ id: id(p.key), assetId: asset.id, name: p.name, kind: "number", value: p.value, unit: p.unit, ...(p.limits ? { limits: p.limits, state: level(p.value, p.limits.alarm, p.limits.trip) } : { state: "ok" as const }), group: "process" });
+  }
+  const pc = partCounts(state);
+  out.push({ id: id("RejectCount"), assetId: asset.id, name: "Rejects caused (8 h)", kind: "number", value: pc.byMachine[asset.id] ?? 0, unit: "units", state: (pc.byMachine[asset.id] ?? 0) > 20 ? "alarm" : "ok", group: "quality" });
+  if (opts.full) {
+    const rul = remainingLife(state, asset);
+    out.push({ id: id("HoursToTrip"), assetId: asset.id, name: "Remaining useful life", kind: "number", value: rul.hoursToTrip ?? -1, unit: "h", text: rul.summary, state: rul.tone === "bad" ? "trip" : rul.tone === "warn" ? "alarm" : "ok", group: "prediction" });
+  }
   return out;
 }
 
@@ -95,8 +128,9 @@ export function activeAlarms(state: FactoryState): LiveAlarm[] {
   }
   for (const a of state.assets) {
     if (covered.has(a.id)) continue;
-    for (const sig of assetSignals(state, a)) {
-      if (sig.state === "ok" || !sig.limits) continue;
+    for (const sig of assetSignals(state, a, { full: false })) {
+      // Alarms come from the measured condition limits; derived process values inform, they don't alarm.
+      if (sig.state === "ok" || !sig.limits || sig.group) continue;
       out.push({ id: `${sig.id}:${sig.state}`, assetId: a.id, severity: sig.state === "trip" ? "critical" : "warning", title: `${a.name}: ${sig.name.toLowerCase()} ${sig.value} ${sig.unit} (${sig.state} limit ${sig.state === "trip" ? sig.limits.trip : sig.limits.alarm})`, sinceHour: state.clock.hour, source: "limit" });
     }
     if (a.mode === "down") out.push({ id: `${a.id}:down`, assetId: a.id, severity: "critical", title: `${a.name} is down`, sinceHour: state.clock.hour, source: "limit" });
@@ -108,7 +142,12 @@ export function activeAlarms(state: FactoryState): LiveAlarm[] {
 /** What the twin knows for certain, so the answer about the picture stays grounded in real state. */
 export function viewContext(s: FactoryState): string {
   const lines = s.lines.map((l) => `- ${l.id} ${l.name}: ${l.state}, pace ${Math.round(lineFlow(s, l.id) * 100)}% of nominal; machines ${l.assetIds.join(", ")}`);
-  const machines = s.assets.map((a) => `- ${a.id} ${a.name} (${a.kind}, ${a.lineId}): ${a.status}, health ${a.healthScore.toFixed(0)}, vibration ${a.signal.vibration.toFixed(1)} mm/s, ${a.signal.temperature.toFixed(0)} °C`);
+  const st = machineStates(s);
+  const machines = s.assets.map((a) => {
+    const m = st[a.id];
+    const rul = remainingLife(s, a);
+    return `- ${a.id} ${a.name} (${a.kind}, ${a.lineId}): ${a.status}, ${m ? `${m.state} (${m.reason})` : a.mode}, health ${a.healthScore.toFixed(0)}, vibration ${a.signal.vibration.toFixed(1)} mm/s, ${a.signal.temperature.toFixed(0)} °C, ${a.signal.powerKw.toFixed(1)} kW; ${rul.summary}`;
+  });
   const alarms = activeAlarms(s).map((x) => `- ${x.severity} ${x.assetId}: ${x.title}`);
   return [`Plant: ${s.profile.name}`, "Lines:", ...lines, "Machines:", ...machines, alarms.length ? "Active alarms:" : "No active alarms.", ...alarms].join("\n");
 }

@@ -13,6 +13,7 @@ import { Topbar } from "@/components/shell/topbar";
 import { Button, TooltipProvider } from "@/components/ui/primitives";
 import { CameraDialogHost } from "@/components/vision/camera-panel";
 import { CopilotPanel } from "@/components/copilot/copilot-panel";
+import { RecordingOverlay } from "@/components/shell/recording-overlay";
 
 export default function PlatformLayout({ children }: { children: React.ReactNode }) {
   const [navOpen, setNavOpen] = useState(false);
@@ -31,6 +32,7 @@ export default function PlatformLayout({ children }: { children: React.ReactNode
 
   return (
     <TooltipProvider>
+      <RecordingOverlay />
       <div className="min-h-screen">
         <Sidebar open={navOpen} onNavigate={() => setNavOpen(false)} />
         {navOpen && <div className="fixed inset-0 z-30 bg-black/50 lg:hidden" onClick={() => setNavOpen(false)} />}

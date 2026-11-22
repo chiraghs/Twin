@@ -250,7 +250,7 @@ test("MCP server: initialize, list tools with read-only hints, call a tool", asy
   const init = await request.post("/api/mcp", { headers, data: { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "e2e", version: "1" } } } });
   expect((await init.json()).result.serverInfo.name).toBe("twin");
   const list = (await (await request.post("/api/mcp", { headers, data: { jsonrpc: "2.0", id: 2, method: "tools/list", params: {} } })).json()) as { result: { tools: { name: string; annotations?: { readOnlyHint?: boolean } }[] } };
-  expect(list.result.tools).toHaveLength(32);
+  expect(list.result.tools).toHaveLength(33);
   expect(list.result.tools.filter((t) => !t.annotations?.readOnlyHint).map((t) => t.name)).toEqual(["propose_plan"]);
   const call = (await (await request.post("/api/mcp", { headers, data: { jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "diagnose_asset", arguments: { assetId: "A-ROB-03" } } } })).json()) as { result: { content: { text: string }[] } };
   expect(JSON.parse(call.result.content[0].text).asset.id).toBe("A-ROB-03");

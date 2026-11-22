@@ -142,7 +142,7 @@ function SignalTable({ state, asset }: { state: FactoryState; asset: Asset }) {
                 <td className="px-2 py-1.5">
                   <Badge tone={STATE_TONE[s.state]}>{s.state}</Badge>
                 </td>
-                <td className="px-2 py-1.5">{s.name === "Vibration" || s.name === "Temperature" ? <Spark values={history.slice(-36).map((r) => (s.name === "Vibration" ? r.vibration : r.temperature))} limit={s.limits?.alarm} /> : null}</td>
+                <td className="px-2 py-1.5">{SPARK[s.name] ? <Spark values={history.slice(-36).map(SPARK[s.name])} limit={s.name === "Vibration" || s.name === "Temperature" ? s.limits?.alarm : undefined} /> : null}</td>
               </tr>
             ))}
           </tbody>
@@ -152,7 +152,16 @@ function SignalTable({ state, asset }: { state: FactoryState; asset: Asset }) {
   );
 }
 
-const fmt = (s: LiveSignal) => (s.kind === "bool" ? (s.value ? "TRUE" : "FALSE") : `${s.value} ${s.unit}`.trim());
+/** Signals with a recorded history in the telemetry log. */
+const SPARK: Record<string, (r: { vibration: number; temperature: number; powerKw: number; throughput: number }) => number> = {
+  Vibration: (r) => r.vibration,
+  Temperature: (r) => r.temperature,
+  Power: (r) => r.powerKw,
+  Throughput: (r) => r.throughput,
+};
+
+const fmt = (s: LiveSignal) =>
+  s.kind === "bool" ? (s.value ? "TRUE" : "FALSE") : s.name === "Machine state" ? `${s.text} (${s.value})` : s.name === "Remaining useful life" ? (s.text ?? "") : `${s.value} ${s.unit}`.trim() + (s.text ? ` · ${s.text}` : "");
 
 /** A small inline trend with the alarm limit as a dashed line. */
 function Spark({ values, limit }: { values: number[]; limit?: number }) {

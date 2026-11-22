@@ -60,6 +60,22 @@ function TwinStudio() {
   const [focus, setFocus] = useState<string | null>(null);
   const forecast = useForecast(state);
 
+  const switchView = (v: typeof view) => {
+    setView(v);
+    if (typeof window !== "undefined") {
+      const url = new URL(window.location.href);
+      if (v === "topology") url.searchParams.delete("view");
+      else url.searchParams.set("view", v);
+      window.history.replaceState(null, "", url.toString());
+    }
+  };
+
+  // Direct links into a view, e.g. /twin?view=vr opens the VR tab.
+  useEffect(() => {
+    const v = params.get("view");
+    if (v === "vr" || v === "3d" || v === "iso" || v === "floor" || v === "topology") setView(v);
+  }, [params]); // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     const a = params.get("asset");
     if (a && state.assets.some((x) => x.id === a)) {
@@ -100,19 +116,19 @@ function TwinStudio() {
 
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <div className="inline-flex rounded-lg border border-line bg-shell p-0.5">
-          <button onClick={() => setView("topology")} aria-pressed={view === "topology"} className={cn("flex h-7 items-center gap-1.5 rounded-md px-2.5 text-[12.5px]", view === "topology" ? "bg-surface-3 text-ink" : "text-muted hover:text-ink")}>
+          <button onClick={() => switchView("topology")} aria-pressed={view === "topology"} className={cn("flex h-7 items-center gap-1.5 rounded-md px-2.5 text-[12.5px]", view === "topology" ? "bg-surface-3 text-ink" : "text-muted hover:text-ink")}>
             <Network className="h-3.5 w-3.5" /> Topology
           </button>
-          <button onClick={() => setView("iso")} aria-pressed={view === "iso"} className={cn("flex h-7 items-center gap-1.5 rounded-md px-2.5 text-[12.5px]", view === "iso" ? "bg-surface-3 text-ink" : "text-muted hover:text-ink")}>
+          <button onClick={() => switchView("iso")} aria-pressed={view === "iso"} className={cn("flex h-7 items-center gap-1.5 rounded-md px-2.5 text-[12.5px]", view === "iso" ? "bg-surface-3 text-ink" : "text-muted hover:text-ink")}>
             <Box className="h-3.5 w-3.5" /> Isometric
           </button>
-          <button onClick={() => setView("floor")} aria-pressed={view === "floor"} className={cn("flex h-7 items-center gap-1.5 rounded-md px-2.5 text-[12.5px]", view === "floor" ? "bg-surface-3 text-ink" : "text-muted hover:text-ink")}>
+          <button onClick={() => switchView("floor")} aria-pressed={view === "floor"} className={cn("flex h-7 items-center gap-1.5 rounded-md px-2.5 text-[12.5px]", view === "floor" ? "bg-surface-3 text-ink" : "text-muted hover:text-ink")}>
             <MapIcon className="h-3.5 w-3.5" /> Floor plan
           </button>
-          <button onClick={() => setView("3d")} aria-pressed={view === "3d"} className={cn("flex h-7 items-center gap-1.5 rounded-md px-2.5 text-[12.5px]", view === "3d" ? "bg-surface-3 text-ink" : "text-muted hover:text-ink")}>
+          <button onClick={() => switchView("3d")} aria-pressed={view === "3d"} className={cn("flex h-7 items-center gap-1.5 rounded-md px-2.5 text-[12.5px]", view === "3d" ? "bg-surface-3 text-ink" : "text-muted hover:text-ink")}>
             <Rotate3d className="h-3.5 w-3.5" /> 3D
           </button>
-          <button onClick={() => setView("vr")} aria-pressed={view === "vr"} className={cn("flex h-7 items-center gap-1.5 rounded-md px-2.5 text-[12.5px]", view === "vr" ? "bg-surface-3 text-ink" : "text-muted hover:text-ink")}>
+          <button onClick={() => switchView("vr")} aria-pressed={view === "vr"} className={cn("flex h-7 items-center gap-1.5 rounded-md px-2.5 text-[12.5px]", view === "vr" ? "bg-surface-3 text-ink" : "text-muted hover:text-ink")}>
             <Glasses className="h-3.5 w-3.5" /> VR
           </button>
         </div>

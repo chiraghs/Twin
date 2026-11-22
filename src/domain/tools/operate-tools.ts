@@ -11,6 +11,7 @@ import { maintenanceGuide } from "../guided-maintenance";
 import { amrFleet } from "../intralogistics";
 import { computeKpis, hourlySeries } from "../kpis";
 import { activeAlarms, assetSignals, lineFlow, lineOutput } from "../live";
+import { bottlenecks, machineStates, partCounts, robotBatteries, zoneEnvironment } from "../process-signals";
 import { round } from "../math";
 import type { FactoryState } from "../types";
 import type { ToolStore } from "./twin-tools";
@@ -93,12 +94,44 @@ export const OPERATE_TOOLS = [
   tool({
     name: "get_live_signals",
     title: "Live signals",
-    description: "Every signal one machine exposes right now (run state, fault, speed setpoint, throughput, vibration, temperature, power, health) with alarm and trip limits.",
+    description:
+      "Every signal one machine exposes right now with alarm and trip limits: run state, fault, machine state with reason (running, idle, starved, blocked, changeover, fault, maintenance), speed setpoint, throughput, cycle time, vibration, temperature, power, motor current, voltage, power factor, process values for its type (pressure, flow, torque, spindle or joint load, tool wear), rejects it caused, health score and remaining useful life (predicted hours to trip).",
     shape: { assetId: AssetId },
     effect: "read",
     run(store, a) {
       const s = store.get();
-      return assetSignals(s, asset(s, a.assetId)).map((x) => ({ id: x.id, name: x.name, value: typeof x.value === "number" ? r2(x.value) : x.value, unit: x.unit, state: x.state, limits: x.limits ?? null }));
+      return assetSignals(s, asset(s, a.assetId)).map((x) => ({ id: x.id, name: x.name, value: typeof x.value === "number" ? r2(x.value) : x.value, unit: x.unit, state: x.state, limits: x.limits ?? null, ...(x.text ? { meaning: x.text } : {}) }));
+    },
+  }),
+  tool({
+    name: "explain_throughput",
+    title: "Explain throughput",
+    description:
+      "Why each line runs at its current pace: every machine's state with its reason (running, starved, blocked, changeover, fault, maintenance), the constraint (bottleneck) of each line, good and rejected units over 8 h with the machines that caused rejects, zone environment (temperature, humidity, PM2.5, noise) and mobile-robot batteries. Use for 'why is output low', 'what is the bottleneck', 'what is blocked or starved'.",
+    shape: { lineId: z.string().max(40).optional().describe("Only this line (e.g. LINE-A); omit for all lines.") },
+    effect: "read",
+    run(store, a) {
+      const s = store.get();
+      const lines = s.lines.filter((l) => !a.lineId || l.id.toLowerCase() === a.lineId.toLowerCase() || l.name.toLowerCase() === a.lineId.toLowerCase());
+      if (!lines.length) throw new Error(`Unknown line "${a.lineId}". Use list_lines to see valid ids.`);
+      const st = machineStates(s);
+      const pc = partCounts(s);
+      const env = zoneEnvironment(s);
+      const bn = bottlenecks(s);
+      return {
+        lines: lines.map((l) => ({
+          id: l.id,
+          name: l.name,
+          state: l.state,
+          pacePctOfNameplate: Math.round(lineFlow(s, l.id) * 100),
+          constraint: bn.find((b) => b.lineId === l.id) ?? null,
+          machines: l.assetIds.map((id) => ({ id, state: st[id]?.state ?? null, reason: st[id]?.reason ?? null, rejectsCaused8h: pc.byMachine[id] ?? 0 })),
+          output8h: pc.lines[l.id],
+          environment: env.find((e) => e.lineId === l.id) ?? null,
+        })),
+        robotBatteries: robotBatteries(s, amrFleet(s)),
+        method: "Derived from the plant model's live state (simulated demo data).",
+      };
     },
   }),
   tool({

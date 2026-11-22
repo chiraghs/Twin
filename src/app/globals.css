@@ -288,6 +288,27 @@ body {
   }
 }
 
+/* Landing: a hand that taps the "Launch Factory Demo" button. */
+@keyframes demo-tap {
+  0%,
+  100% {
+    transform: translateY(14px);
+  }
+  45% {
+    transform: translateY(0);
+  }
+  55% {
+    transform: translateY(0) scale(0.88);
+  }
+  65% {
+    transform: translateY(0);
+  }
+}
+.demo-hand {
+  animation: demo-tap 1.6s ease-in-out infinite;
+  transform-origin: 40% 0%;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

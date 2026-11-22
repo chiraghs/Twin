@@ -51,7 +51,8 @@ function showIn3d(preview: string) {
   try {
     const shown = (JSON.parse(preview) as { shown?: string }).shown;
     if (!shown) return;
-    useUi.getState().setTwinView("3d");
+    // Stay in the VR tab if that's where the user is; it obeys the same request.
+    if (useUi.getState().twinView !== "vr") useUi.getState().setTwinView("3d");
     useView3d.getState().go(shown === "overview" ? { kind: "reset" } : { kind: "focus", id: shown }, "copilot");
   } catch {
     /* preview truncated or not JSON: nothing to show */

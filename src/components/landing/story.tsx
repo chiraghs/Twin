@@ -13,6 +13,7 @@ import {
   FileText,
   FlaskConical,
   Gauge,
+  Pointer,
   Leaf,
   Network,
   Radio,
@@ -260,10 +261,23 @@ function PinnedStory({ story }: { story: StoryData }) {
           <p className="mx-auto mt-5 max-w-2xl text-[16px] leading-relaxed text-ink-2 sm:text-[19px]">
             A living digital twin with six AI agents that see trouble coming, simulate the fix — and wait for your go.
           </p>
-          <div className="mt-7 flex flex-wrap items-center justify-center gap-3">
-            <Link href="/dashboard" className="flex h-11 items-center gap-2 rounded-full bg-accent px-6 text-[15px] font-semibold text-white shadow-[0_10px_30px_-10px_var(--color-accent)] hover:bg-accent-strong">
-              Launch Factory Demo <ArrowRight className="h-4 w-4" />
-            </Link>
+          <div className="mt-7 flex flex-wrap items-start justify-center gap-3">
+            {/* The way in: a pulsing ring and a hand tapping the button. */}
+            <span className="flex flex-col items-center" data-testid="demo-cta">
+              <span className="relative inline-flex">
+                <span className="pointer-events-none absolute inset-0 rounded-full border-2 border-accent animate-pulse-ring" aria-hidden />
+                <Link href="/dashboard" className="relative flex h-11 items-center gap-2 rounded-full bg-accent px-6 text-[15px] font-semibold text-white shadow-[0_10px_30px_-10px_var(--color-accent)] ring-2 ring-accent/40 hover:bg-accent-strong">
+                  Launch Factory Demo <ArrowRight className="h-4 w-4" />
+                </Link>
+                {/* The finger tip taps the button's lower edge. */}
+                <span className="pointer-events-none absolute top-[70%] right-6" aria-hidden>
+                  <Pointer className="demo-hand h-10 w-10 fill-white text-slate-900 drop-shadow-[0_6px_12px_rgba(0,0,0,0.5)]" strokeWidth={1.5} />
+                </span>
+              </span>
+              <span className="mt-9 rounded-full bg-accent/15 px-3 py-1 text-[12px] font-medium text-accent-ink backdrop-blur" aria-hidden>
+                Start here: the live demo
+              </span>
+            </span>
             <Link href="/onboarding" className="flex h-11 items-center rounded-full border border-line-strong px-6 text-[15px] font-medium text-ink hover:bg-surface">
               Create your twin
             </Link>
