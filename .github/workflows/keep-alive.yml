@@ -1,0 +1,17 @@
+name: Keep Render Service Awake
+
+on:
+  schedule:
+    # Runs every 10 minutes (cron format: minute hour day-of-month month day-of-week)
+    - cron: '*/10 * * * *'
+  workflow_dispatch: # Allows manual trigger from GitHub Actions tab
+
+jobs:
+  ping-render:
+    name: Ping Render App
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send keep-alive HTTP GET request
+        run: |
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 60 https://twin-web-8onw.onrender.com/)
+          echo "HTTP response status: $STATUS at $(date -u)"
