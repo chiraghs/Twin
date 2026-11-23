@@ -332,3 +332,19 @@ body {
     overflow: hidden;
   }
 }
+
+/* The website shown on a panel inside VR (components/three/vr-browser.tsx): the headset draws its
+   own navigation, so the page drops its shell; no animations, so every snapshot is the final look. */
+html[data-vr-embed] [data-vr-hide] {
+  display: none !important;
+}
+html[data-vr-embed] .vr-embed-pad {
+  padding-left: 0 !important;
+}
+html[data-vr-embed] *,
+html[data-vr-embed] *::before,
+html[data-vr-embed] *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+}

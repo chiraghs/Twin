@@ -68,4 +68,17 @@ describe("overlay, bottleneck, what-if and replay commands", () => {
     expect(parseVoiceCommand("what if the order is late").kind).toBe("ask");
     expect(parseVoiceCommand("speed down 20 percent")).toEqual({ kind: "speed", delta: -20, target: null });
   });
+
+  it("opens the website panel at a page, or closes it", () => {
+    expect(parseVoiceCommand("open the website")).toEqual({ kind: "page", href: null, open: true });
+    expect(parseVoiceCommand("close the website")).toEqual({ kind: "page", href: null, open: false });
+    expect(parseVoiceCommand("open approvals")).toEqual({ kind: "page", href: "/approvals", open: true });
+    expect(parseVoiceCommand("Show the AI operations page")).toEqual({ kind: "page", href: "/agents", open: true });
+    expect(parseVoiceCommand("open supply chain")).toEqual({ kind: "page", href: "/analytics/supply", open: true });
+    expect(parseVoiceCommand("go to the sustainability page")).toEqual({ kind: "page", href: "/sustainability", open: true });
+    // Machines and views keep their own commands.
+    expect(parseVoiceCommand("go to A rob zero three").kind).toBe("goto");
+    expect(parseVoiceCommand("open table view").kind).toBe("table");
+    expect(parseVoiceCommand("show vibration").kind).toBe("heat");
+  });
 });

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
+import { useRouter } from "next/navigation";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Billboard } from "@react-three/drei";
 import { createXRStore, TeleportTarget, XR, XROrigin, useXR, useXRControllerLocomotion } from "@react-three/xr";
@@ -30,6 +31,7 @@ import { FIND_KIND_LABEL, findEntries, findIndex, standPoint, type FindEntry, ty
 import { GripTalk, useVrVoice, VoiceDock, VoiceRig3D } from "./vr-voice";
 import { FpsProbe, HandMenu, TablePlacer, useFps, type HandMenuItem } from "./vr-hands";
 import { Board, Button3D, textTexture, type BoardLine, type Spark } from "./vr-ui";
+import { VRBrowser } from "./vr-browser";
 import { AlarmSounds, FlowOverlay, HEAT_LABEL, HEAT_LEGEND, HEAT_METRICS, heatCells, HeatOverlay, replayEvents, replayFrame, replayStart, replayStatus } from "./vr-overlays";
 import { useView3d } from "@/client/view3d";
 
@@ -482,6 +484,23 @@ export function TwinVR({ state }: { state: FactoryState }) {
   const [flowOn, setFlowOn] = useState(true);
   const [replay, setReplay] = useState<{ hour: number; playing: boolean } | null>(null);
   const [whatIf, setWhatIf] = useState<QuickWhatIf | null>(null);
+  /** The website panel in the headset: the page it shows, or null when closed. */
+  const router = useRouter();
+  const [site, setSite] = useState<string | null>(null);
+  const lastSite = useRef("/dashboard");
+  const openSite = (href: string | null, open = true) => {
+    if (!open) return setSite(null);
+    const p = href ?? lastSite.current;
+    lastSite.current = p;
+    setSite(p);
+    setFindOpen(false);
+  };
+  /** Leaves the headset on the full page in the browser. */
+  const openOnScreen = (p: string) => {
+    setSite(null);
+    void store.getState().session?.end();
+    router.push(p);
+  };
   const muted = useVoiceSettings((s) => s.muted);
   const searchRef = useRef<HTMLInputElement>(null);
   const originRef = useRef<THREE.Group>(null);
@@ -624,6 +643,7 @@ export function TwinVR({ state }: { state: FactoryState }) {
       recenter,
       seated: (on) => setSeated(on),
       perf: (on) => setQuestPerf(on),
+      page: openSite,
     },
   });
   // The copilot's show_in_3d (spoken or typed) moves you here instead of switching to the 3D tab.
@@ -791,6 +811,7 @@ export function TwinVR({ state }: { state: FactoryState }) {
     { key: "seated", label: seated ? "Seated" : "Standing", color: "#8b5cf6", active: seated, onPress: () => setSeated(!seated) },
     { key: "perf", label: questPerf ? "Perf: 72fps" : "Quality", color: "#eab308", active: questPerf, onPress: () => setQuestPerf(!questPerf) },
     { key: "find", label: findOpen ? "Hide find" : "Find", color: "#4c8dff", active: findOpen, onPress: () => setFindOpen(!findOpen) },
+    { key: "site", label: site ? "Hide site" : "Website", color: "#0ea5e9", active: !!site, onPress: () => openSite(null, !site) },
     { key: "heat", label: heat ? HEAT_LABEL[heat] : "Heat", color: "#f97316", active: !!heat, onPress: () => setHeat(nextHeat(heat)) },
     { key: "flow", label: flowOn ? "Flow on" : "Flow off", color: "#22c55e", active: flowOn, onPress: () => setFlowOn(!flowOn) },
     { key: "replay", label: replay ? "Live" : "Replay 6 h", color: "#38bdf8", active: !!replay, onPress: () => startReplay(replay ? null : 6) },
@@ -814,7 +835,8 @@ export function TwinVR({ state }: { state: FactoryState }) {
                 <Button3D label={xrMode === "immersive-ar" ? "Move table" : tableVR ? "Full size" : "Table view"} color="#14b8a6" width={0.5} position={[-0.85, 0.88, -0.7]} onPress={toggleTable} />
                 <Button3D label="Recenter" color="#64748b" width={0.5} position={[0.85, 0.88, -0.7]} onPress={recenter} />
                 <Button3D label={findOpen ? "Hide Find" : "Find…"} color="#4c8dff" position={[-0.3, 0.88, -0.7]} width={0.5} onPress={() => setFindOpen(!findOpen)} />
-                <VoiceRig3D voice={voice} />
+                <Button3D label={site ? "Hide website" : "Website…"} color="#0ea5e9" width={0.5} active={!!site} position={[0, 1.06, -0.7]} onPress={() => openSite(null, !site)} />
+                <VoiceRig3D voice={voice} compact={!!site} />
                 <Button3D label={seated ? "Seated: on" : "Seated: off"} color="#8b5cf6" width={0.5} active={seated} position={[-0.85, 0.52, -0.7]} onPress={() => setSeated(!seated)} />
                 <Button3D label={questPerf ? "Perf: 72fps" : "Quality"} color="#eab308" width={0.5} active={questPerf} position={[0.85, 0.52, -0.7]} onPress={() => setQuestPerf(!questPerf)} />
                 <Button3D label={heat ? `Heat: ${HEAT_LABEL[heat]}` : "Heat: off"} color="#f97316" width={0.52} active={!!heat} position={[-0.35, 0.52, -0.7]} onPress={() => setHeat(nextHeat(heat))} />
@@ -826,6 +848,18 @@ export function TwinVR({ state }: { state: FactoryState }) {
               <Board lines={[{ text: "Look down at a table or desk", tone: "title" }, { text: "Hold still to place the plant, or pinch", tone: "muted" }]} accent="#4c8dff" position={[0, 1.3, -0.9]} width={0.5} />
             )}
             {inXR && findOpen && <FindMenu index={index} onPick={goTo} onClose={() => setFindOpen(false)} />}
+            {inXR && site && (
+              <VRBrowser
+                path={site}
+                onPath={(p) => {
+                  lastSite.current = p;
+                  setSite(p);
+                }}
+                onClose={() => setSite(null)}
+                onOpenOnScreen={openOnScreen}
+                position={tableMode ? [0.3, seated ? 1.4 : 1.75, -1.4] : [0, seated ? 1.38 : 1.72, -1.35]}
+              />
+            )}
             {inXR && heat && <Board lines={[{ text: HEAT_LABEL[heat], tone: "title" }, { text: HEAT_LEGEND[heat], tone: "muted" }]} accent="#f97316" position={[-0.8, 1.42, -1.1]} width={0.6} />}
             {inXR && replay && frame && <Board lines={replayLines(state, frame.hour)} accent="#38bdf8" position={[0.8, 1.5, -1.2]} width={0.7} />}
             {inXR && recordingOn && (

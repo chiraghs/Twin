@@ -19,6 +19,7 @@ import type { QuickWhatIf } from "@/domain/quick-what-if";
 import { parseVoiceCommand, VOICE_HELP, type HeatMetric } from "@/domain/voice-commands";
 import { cn } from "@/lib/cn";
 import { HEAT_LABEL } from "./vr-overlays";
+import { pageLabel } from "@/domain/site-pages";
 import { findEntries, type FindEntry } from "./vr-search";
 
 export type VoiceStatus = "idle" | "listening" | "thinking";
@@ -48,6 +49,8 @@ interface Deps {
     recenter?: () => void;
     seated?: (on: boolean) => void;
     perf?: (on: boolean) => void;
+    /** The website panel: open at a page (or the last one), or close (null). */
+    page?: (href: string | null, open: boolean) => void;
   };
 }
 
@@ -191,6 +194,11 @@ export function useVrVoice({ state, index, selected, goTo, exitXR, inXR, overlay
           case "table": {
             ref.current.overlays.table(cmd.on);
             return say(cmd.on ? "Table view: the whole plant in front of you." : "Back to full size.");
+          }
+          case "page": {
+            if (!ref.current.overlays.page) return say("The website panel is only in the headset.");
+            ref.current.overlays.page(cmd.href, cmd.open);
+            return say(!cmd.open ? "Closed the website." : cmd.href ? `Opening ${pageLabel(cmd.href)}. Point and pinch to click.` : "Here is the website. Pick a page on the left.");
           }
           case "recenter": {
             ref.current.overlays.recenter?.();
@@ -432,7 +440,8 @@ function HoldButton({ label, color, position, width, onDown, onUp, onClick, acti
 }
 
 /** Talk / mute / mic buttons at waist height and the voice board in front of you (children of the XR origin). */
-export function VoiceRig3D({ voice }: { voice: VrVoice }) {
+/** `compact`: smaller and lower, below the website panel when it is open. */
+export function VoiceRig3D({ voice, compact }: { voice: VrVoice; compact?: boolean }) {
   const { muted, micOff, setMuted, setMicOff } = useVoiceSettings();
   const boardTex = useMemo(() => {
     if (voice.status === "idle" && !voice.heard && !voice.reply) return null;
@@ -452,8 +461,8 @@ export function VoiceRig3D({ voice }: { voice: VrVoice }) {
       <HoldButton label={micOff ? "Mic off" : "Mic on"} color="#64748b" width={0.28} position={[0.38, 0.7, -0.7]} onClick={() => setMicOff(!micOff)} active={micOff} />
       {boardTex && (
         // Low and to the right of the view, so it never covers what you are looking at.
-        <mesh position={[0.62, 1.12, -1.05]} rotation={[0, -0.45, 0]}>
-          <planeGeometry args={[0.72, 0.72 * (420 / 900)]} />
+        <mesh position={compact ? [0.62, 1.06, -1.05] : [0.62, 1.12, -1.05]} rotation={[0, -0.45, 0]}>
+          <planeGeometry args={compact ? [0.5, 0.5 * (420 / 900)] : [0.72, 0.72 * (420 / 900)]} />
           <meshBasicMaterial map={boardTex} transparent toneMapped={false} depthTest={false} />
         </mesh>
       )}

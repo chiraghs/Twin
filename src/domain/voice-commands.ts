@@ -3,6 +3,9 @@
  * the text into a command deterministically. Anything that isn't a command goes to the copilot.
  * Risky commands (trip) need a spoken "confirm" afterwards.
  */
+import { findPage, pageLabel } from "./site-pages";
+
+export { pageLabel };
 export type VoiceCommand =
   | { kind: "goto"; query: string }
   | { kind: "ack"; target: string | null }
@@ -24,6 +27,8 @@ export type VoiceCommand =
   | { kind: "recenter" }
   | { kind: "seated"; on: boolean }
   | { kind: "perf"; on: boolean }
+  /** The website panel in VR: open it (at a page, when named) or close it. */
+  | { kind: "page"; href: string | null; open: boolean }
   | { kind: "ask"; text: string };
 
 /** What the VR heatmap colours machines by. */
@@ -134,6 +139,14 @@ export function parseVoiceCommand(transcript: string): VoiceCommand {
   if (/^(?:quest )?perf(?:ormance)?(?: mode)?(?: on)?$/.test(t)) return { kind: "perf", on: true };
   if (/^(?:quest )?perf(?:ormance)?(?: mode)? off$/.test(t)) return { kind: "perf", on: false };
   if (/^(show|hide|turn on|turn off)( the)? (product )?flow( on| off)?$|^flow (on|off)$/.test(t)) return { kind: "flow", on: !/\b(hide|off)\b/.test(t) };
+  // The website panel: "open the website", "open approvals", "show the AI operations page", "close the website".
+  if (/^(?:close|hide|exit)(?: the)? (?:web ?site|site|browser|web page|webpage|pages?)$/.test(t)) return { kind: "page", href: null, open: false };
+  if (/^(?:open|show)(?: the)? (?:web ?site|site|browser|web page|webpage|pages?|full (?:web ?)?site)$/.test(t)) return { kind: "page", href: null, open: true };
+  const pg = t.match(/^(?:open|show|go to|switch to|take me to)(?: me)?(?: the)? (.+?) (?:page|screen|tab)$/) ?? t.match(/^open(?: the)? (.+)$/);
+  if (pg) {
+    const href = findPage(pg[1]);
+    if (href) return { kind: "page", href, open: true };
+  }
   if (question) return { kind: "ask", text: raw };
   const go = t.match(/^(?:go to|goto|take me to|show me|show|find|where is|where s|navigate to|teleport to|walk to)\s+(.+)$/);
   if (go) {
@@ -145,4 +158,4 @@ export function parseVoiceCommand(transcript: string): VoiceCommand {
 
 /** What to say for "help". */
 export const VOICE_HELP =
-  "Say: go to A-ROB-03, show heat or show vibration, where is the bottleneck, what if A-ROB-03 runs at 80 percent, replay the last 6 hours, table view, recenter, seated mode, performance mode, acknowledge alarm, speed down, trip, restore, mute, or exit VR. Anything else goes to the copilot.";
+  "Say: go to A-ROB-03, show heat or show vibration, where is the bottleneck, what if A-ROB-03 runs at 80 percent, replay the last 6 hours, table view, open approvals (or open the website), recenter, seated mode, performance mode, acknowledge alarm, speed down, trip, restore, mute, or exit VR. Anything else goes to the copilot.";

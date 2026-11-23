@@ -32,12 +32,19 @@ export default function PlatformLayout({ children }: { children: React.ReactNode
 
   return (
     <TooltipProvider>
-      <RecordingOverlay />
+      <div data-vr-hide className="contents">
+        <RecordingOverlay />
+      </div>
       <div className="min-h-screen">
-        <Sidebar open={navOpen} onNavigate={() => setNavOpen(false)} />
-        {navOpen && <div className="fixed inset-0 z-30 bg-black/50 lg:hidden" onClick={() => setNavOpen(false)} />}
-        <div className="lg:pl-60">
-          <Topbar onMenu={() => setNavOpen(true)} />
+        {/* Inside the VR browser panel the headset shows its own navigation (data-vr-hide). */}
+        <div data-vr-hide className="contents">
+          <Sidebar open={navOpen} onNavigate={() => setNavOpen(false)} />
+          {navOpen && <div className="fixed inset-0 z-30 bg-black/50 lg:hidden" onClick={() => setNavOpen(false)} />}
+        </div>
+        <div className="vr-embed-pad lg:pl-60">
+          <div data-vr-hide className="contents">
+            <Topbar onMenu={() => setNavOpen(true)} />
+          </div>
           <main className="mx-auto w-full max-w-[1600px] px-4 py-5 lg:px-6">
             {state ? (
               children
@@ -63,11 +70,13 @@ export default function PlatformLayout({ children }: { children: React.ReactNode
             )}
           </main>
         </div>
-        <DemoGuide />
+        <div data-vr-hide className="contents">
+          <DemoGuide />
+          <CopilotPanel />
+          <MobileNotice />
+        </div>
         <CameraDialogHost />
-        <CopilotPanel />
         <Toaster />
-        <MobileNotice />
       </div>
     </TooltipProvider>
   );

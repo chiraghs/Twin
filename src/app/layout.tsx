@@ -5,6 +5,7 @@ import "@fontsource-variable/jetbrains-mono";
 import "./globals.css";
 import { mobileNoticeBootScript } from "@/components/shell/mobile-boot";
 import { themeBootScript } from "@/components/theme-boot";
+import { vrEmbedBootScript } from "@/components/three/vr-page-capture";
 
 export const metadata: Metadata = {
   title: "Twin AI — Agentic Industrial Digital Twin",
@@ -26,7 +27,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" data-theme="dark" suppressHydrationWarning>
       <head>
-        <script dangerouslySetInnerHTML={{ __html: themeBootScript + mobileNoticeBootScript }} />
+        <script dangerouslySetInnerHTML={{ __html: themeBootScript + mobileNoticeBootScript + vrEmbedBootScript }} />
       </head>
       <body className="min-h-screen bg-canvas text-ink antialiased">{children}</body>
     </html>
