@@ -5,7 +5,7 @@ import { useFrame, useThree } from "@react-three/fiber";
 import { useXR, useXRInputSourceEvent, useXRInputSourceState, XRSpace } from "@react-three/xr";
 import * as THREE from "three";
 import { create } from "zustand";
-import { textTexture } from "./vr-ui";
+import { controlTexture, textTexture, THEME } from "./vr-ui";
 
 /** Frames per second and frametime in milliseconds, measured in the render loop (XR frames in a headset). */
 export const useFps = create<{ fps: number; ms: number; set: (fps: number, ms?: number) => void }>((set) => ({
@@ -29,7 +29,7 @@ function PokeButton({ item, position }: { item: HandMenuItem; position: [number,
   const [hover, setHover] = useState(false);
   const last = useRef(0);
   const tex = useMemo(
-    () => textTexture([{ text: item.label, color: "#f8fafc", font: "600 38px system-ui, sans-serif" }], 320, 120, hover || item.active ? item.color : "rgba(15,23,42,0.95)", item.color),
+    () => controlTexture(item.label, item.color, { hover, active: item.active }, 320, 120),
     [item.label, item.color, item.active, hover],
   );
   useEffect(() => () => tex.dispose(), [tex]);
@@ -97,7 +97,7 @@ export function HandMenu({ items, label }: { items: HandMenuItem[]; label?: stri
   });
   const cols = 2;
   const rows = Math.ceil(items.length / cols);
-  const statusTex = useMemo(() => (status ? textTexture([{ text: status, color: "#cbd5e1", font: "30px system-ui, sans-serif" }], 480, 70, "rgba(10,14,24,0.85)") : null), [status]);
+  const statusTex = useMemo(() => (status ? textTexture([{ text: status, color: THEME.ink2, font: "500 26px system-ui, sans-serif" }], 480, 70) : null), [status]);
   useEffect(() => () => statusTex?.dispose(), [statusTex]);
   if (!wrist) return null;
   return (

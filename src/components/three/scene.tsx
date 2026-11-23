@@ -13,6 +13,9 @@ import { amrPose, type AmrPath } from "./amr-paths";
 import type { MaterialName, Materials, Quality } from "./materials";
 import type { Palette } from "./palette";import { CAMERA_LENS_COLOR, STATUS_COLOR } from "../ui/labels";
 
+/** Decorative lines (selection rings, robot routes) never take pointer hits: fat lines can't be raycast from XR pointers. */
+const noRaycast = () => null;
+
 
 /** Layout (x, y on the floor, z up) → three.js (x, y up, z). */
 export const P = (x: number, y: number, z = 0) => [x, z, y] as [number, number, number];
@@ -377,7 +380,7 @@ function Pulse({ w, d, color, dashed }: { w: number; d: number; color: string; d
   ];
   return (
     <group ref={ref}>
-      <Line points={c} color={color} lineWidth={dashed ? 1.6 : 2.6} dashed={dashed} dashSize={0.25} gapSize={0.18} />
+      <Line points={c} color={color} lineWidth={dashed ? 1.6 : 2.6} dashed={dashed} dashSize={0.25} gapSize={0.18} raycast={noRaycast} />
     </group>
   );
 }
@@ -917,7 +920,7 @@ export function Amr3D({ path, pal, mats, index, selected, onSelect, register }: 
   return (
     <group>
       {path.slot === 0 && (
-        <Line points={routePts} color={color} lineWidth={selected ? 2.4 : 1.3} dashed dashSize={0.2} gapSize={0.16} transparent opacity={parked ? 0.25 : selected ? 0.95 : 0.5} />
+        <Line points={routePts} color={color} lineWidth={selected ? 2.4 : 1.3} dashed dashSize={0.2} gapSize={0.16} transparent opacity={parked ? 0.25 : selected ? 0.95 : 0.5} raycast={noRaycast} />
       )}
       <group ref={body} {...pick(onSelect)}>
         <Solid size={[L, type === "forklift-agv" ? 0.26 : 0.16, W]} position={[0, 0.11, 0]} material={bodyMat} quality="high" />

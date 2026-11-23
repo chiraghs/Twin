@@ -348,3 +348,14 @@ html[data-vr-embed] *::after {
   animation-iteration-count: 1 !important;
   transition-duration: 0.001ms !important;
 }
+
+/* Headset simulator (localhost): the session's view fills the window. The simulator moves the 3D
+   canvas into its own full-window layer, but the canvas would keep its on-page pixel size. */
+div[data-webxr_runtime] > canvas {
+  width: 100vw !important;
+  height: 100vh !important;
+}
+/* Shift + H in the simulator: a clean frame for recording (our Exit VR button hides too). */
+html[data-sim-clean] [data-sim-chrome] {
+  display: none !important;
+}

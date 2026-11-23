@@ -19,6 +19,7 @@ import type { QuickWhatIf } from "@/domain/quick-what-if";
 import { parseVoiceCommand, VOICE_HELP, type HeatMetric } from "@/domain/voice-commands";
 import { cn } from "@/lib/cn";
 import { HEAT_LABEL } from "./vr-overlays";
+import { controlTexture, FONT, THEME } from "./vr-ui";
 import { pageLabel } from "@/domain/site-pages";
 import { findEntries, type FindEntry } from "./vr-search";
 
@@ -379,50 +380,81 @@ export function GripTalk({ voice }: { voice: VrVoice }) {
   return null;
 }
 
-function texture(lines: { text: string; color: string; font: string }[], w: number, h: number, bg: string, border?: string) {
-  const c = document.createElement("canvas");
-  c.width = w;
-  c.height = h;
-  const g = c.getContext("2d")!;
-  g.fillStyle = bg;
-  g.beginPath();
-  g.roundRect(0, 0, w, h, 22);
-  g.fill();
-  if (border) {
-    g.strokeStyle = border;
-    g.lineWidth = 6;
-    g.stroke();
-  }
-  g.textBaseline = "top";
-  let y = 18;
-  for (const l of lines) {
-    g.font = l.font;
-    g.fillStyle = l.color;
-    // Wrap to the width.
-    const words = l.text.split(" ");
-    let line = "";
-    for (const w0 of words) {
-      const next = line ? `${line} ${w0}` : w0;
-      if (g.measureText(next).width > w - 48 && line) {
-        g.fillText(line, 24, y);
+/** The voice card: themed like the website's cards (header with a status dot, hairline, wrapped text), as tall as its text. */
+function texture(lines: { text: string; color: string; font: string; dot?: string }[], w: number, maxH: number, border: string) {
+  const PXR = 2;
+  const pad = 28;
+  const draw = (g: CanvasRenderingContext2D | null) => {
+    let y = 22;
+    lines.forEach((l, i) => {
+      if (g) {
+        g.font = l.font;
+        g.fillStyle = l.color;
+      }
+      const m = g ?? measureCtx;
+      m.font = l.font;
+      let x = pad;
+      if (l.dot) {
+        if (g) {
+          g.save();
+          g.fillStyle = l.dot;
+          g.beginPath();
+          g.arc(pad + 6, y + 14, 6, 0, Math.PI * 2);
+          g.fill();
+          g.restore();
+        }
+        x += 22;
+      }
+      const words = l.text.split(" ");
+      let line = "";
+      for (const w0 of words) {
+        const next = line ? `${line} ${w0}` : w0;
+        if (m.measureText(next).width > w - pad - x && line) {
+          g?.fillText(line, x, y);
+          y += 34;
+          line = w0;
+        } else line = next;
+        if (y > maxH - 44) break;
+      }
+      if (line && y <= maxH - 44) {
+        g?.fillText(line, x, y);
         y += 36;
-        line = w0;
-      } else line = next;
-      if (y > h - 40) break;
-    }
-    if (line && y <= h - 40) {
-      g.fillText(line, 24, y);
-      y += 40;
-    }
-  }
+      }
+      if (i === 0 && lines.length > 1) {
+        if (g) {
+          g.fillStyle = THEME.line;
+          g.fillRect(pad, y, w - pad * 2, 1.5);
+        }
+        y += 16;
+      }
+    });
+    return y + 10;
+  };
+  const h = Math.min(maxH, Math.max(76, draw(null)));
+  const c = document.createElement("canvas");
+  c.width = w * PXR;
+  c.height = h * PXR;
+  const g = c.getContext("2d")!;
+  g.scale(PXR, PXR);
+  g.fillStyle = "rgba(17,26,46,0.97)";
+  g.beginPath();
+  g.roundRect(1, 1, w - 2, h - 2, 18);
+  g.fill();
+  g.strokeStyle = border;
+  g.lineWidth = border === THEME.lineStrong ? 1.5 : 3;
+  g.stroke();
+  g.textBaseline = "top";
+  draw(g);
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
-  return t;
+  t.anisotropy = 4;
+  return { t, aspect: h / w };
 }
+const measureCtx = (typeof document !== "undefined" ? document.createElement("canvas").getContext("2d") : null) as CanvasRenderingContext2D;
 
 function HoldButton({ label, color, position, width, onDown, onUp, onClick, active }: { label: string; color: string; position: [number, number, number]; width: number; onDown?: () => void; onUp?: () => void; onClick?: () => void; active?: boolean }) {
   const [hover, setHover] = useState(false);
-  const tex = useMemo(() => texture([{ text: label, color: "#f8fafc", font: "600 34px system-ui, sans-serif" }], 384, 110, active ? color : hover ? "rgba(30,41,59,0.95)" : "rgba(15,23,42,0.95)", color), [label, color, hover, active]);
+  const tex = useMemo(() => controlTexture(label, color, { hover, active }, 384, 110), [label, color, hover, active]);
   useEffect(() => () => tex.dispose(), [tex]);
   return (
     <mesh
@@ -447,13 +479,13 @@ export function VoiceRig3D({ voice, compact }: { voice: VrVoice; compact?: boole
     if (voice.status === "idle" && !voice.heard && !voice.reply) return null;
     const head = voice.status === "listening" ? "Listening… release to send" : voice.status === "thinking" ? "Thinking…" : "Twin";
     const lines = [
-      { text: head, color: voice.status === "listening" ? "#f87171" : "#93c5fd", font: "600 30px system-ui, sans-serif" },
-      ...(voice.heard ? [{ text: `You: “${voice.heard}”`, color: "#cbd5e1", font: "28px system-ui, sans-serif" }] : []),
-      ...(voice.reply ? [{ text: voice.reply.slice(0, 420), color: "#f8fafc", font: "28px system-ui, sans-serif" }] : []),
+      { text: head, color: voice.status === "listening" ? THEME.criticalInk : THEME.ink, font: `600 26px ${FONT}`, dot: voice.status === "listening" ? THEME.critical : THEME.agent },
+      ...(voice.heard ? [{ text: `“${voice.heard}”`, color: THEME.ink2, font: `italic 400 24px ${FONT}` }] : []),
+      ...(voice.reply ? [{ text: voice.reply.slice(0, 420), color: THEME.ink, font: `400 25px ${FONT}` }] : []),
     ];
-    return texture(lines, 900, 420, "rgba(10,14,24,0.9)", voice.status === "listening" ? "#ef4444" : "#3b82f6");
+    return texture(lines, 900, 420, voice.status === "listening" ? THEME.critical : THEME.lineStrong);
   }, [voice.status, voice.heard, voice.reply]);
-  useEffect(() => () => boardTex?.dispose(), [boardTex]);
+  useEffect(() => () => boardTex?.t.dispose(), [boardTex]);
   return (
     <>
       <HoldButton label={micOff ? "Mic is off" : voice.status === "listening" ? "Listening…" : "Hold to talk"} color="#ef4444" width={0.5} position={[-0.3, 0.7, -0.7]} active={voice.status === "listening"} onDown={micOff ? undefined : voice.start} onUp={voice.stop} />
@@ -461,9 +493,9 @@ export function VoiceRig3D({ voice, compact }: { voice: VrVoice; compact?: boole
       <HoldButton label={micOff ? "Mic off" : "Mic on"} color="#64748b" width={0.28} position={[0.38, 0.7, -0.7]} onClick={() => setMicOff(!micOff)} active={micOff} />
       {boardTex && (
         // Low and to the right of the view, so it never covers what you are looking at.
-        <mesh position={compact ? [0.62, 1.06, -1.05] : [0.62, 1.12, -1.05]} rotation={[0, -0.45, 0]}>
-          <planeGeometry args={compact ? [0.5, 0.5 * (420 / 900)] : [0.72, 0.72 * (420 / 900)]} />
-          <meshBasicMaterial map={boardTex} transparent toneMapped={false} depthTest={false} />
+        <mesh position={compact ? [0.62, 1.06, -1.05] : [0.66, 1.22, -1.05]} rotation={[0, -0.45, 0]}>
+          <planeGeometry args={compact ? [0.5, 0.5 * boardTex.aspect] : [0.72, 0.72 * boardTex.aspect]} />
+          <meshBasicMaterial map={boardTex.t} transparent toneMapped={false} depthTest={false} />
         </mesh>
       )}
     </>

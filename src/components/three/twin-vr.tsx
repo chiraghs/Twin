@@ -30,8 +30,8 @@ import { Scene } from "./twin-3d";
 import { FIND_KIND_LABEL, findEntries, findIndex, standPoint, type FindEntry, type FindKind } from "./vr-search";
 import { GripTalk, useVrVoice, VoiceDock, VoiceRig3D } from "./vr-voice";
 import { FpsProbe, HandMenu, TablePlacer, useFps, type HandMenuItem } from "./vr-hands";
-import { Board, Button3D, textTexture, type BoardLine, type Spark } from "./vr-ui";
-import { VRBrowser } from "./vr-browser";
+import { Board, Button3D, textTexture, THEME, type BoardLine, type Spark } from "./vr-ui";
+import { VRBrowser, VRNavBar } from "./vr-browser";
 import { AlarmSounds, FlowOverlay, HEAT_LABEL, HEAT_LEGEND, HEAT_METRICS, heatCells, HeatOverlay, replayEvents, replayFrame, replayStart, replayStatus } from "./vr-overlays";
 import { useView3d } from "@/client/view3d";
 
@@ -60,7 +60,7 @@ function ControlPanel({ state, assetId, position, onWhatIf }: { state: FactorySt
   const a = state.assets.find((x) => x.id === assetId);
   const incident = state.incidents.find((i) => i.assetId === assetId && i.status === "open");
   const noteTex = useMemo(
-    () => textTexture([{ text: note?.text ?? (admin ? `Speed ${a?.speedPct ?? 0}% · ${a?.mode ?? ""}` : "Admin needed to change machines"), color: note ? (note.ok ? "#4ade80" : "#f87171") : "#94a3b8", font: "28px system-ui, sans-serif" }], 768, 96, "rgba(10,14,24,0.85)"),
+    () => textTexture([{ text: note?.text ?? (admin ? `Speed ${a?.speedPct ?? 0}% · ${a?.mode ?? ""}` : "Admin needed to change machines"), color: note ? (note.ok ? THEME.healthyInk : THEME.criticalInk) : THEME.ink2, font: "500 26px system-ui, sans-serif" }], 768, 96),
     [note, admin, a?.speedPct, a?.mode],
   );
   useEffect(() => () => noteTex.dispose(), [noteTex]);
@@ -514,6 +514,13 @@ export function TwinVR({ state }: { state: FactoryState }) {
     });
   }, [store]);
   const exitXR = () => void store.getState().session?.end();
+  /** Simulator: the browser goes full screen with the session (as a headset would), and back after it. */
+  const fullScreenSim = () => {
+    if (simulating && !document.fullscreenElement) void document.documentElement.requestFullscreen?.().catch(() => undefined);
+  };
+  useEffect(() => {
+    if (!inXR && simulating && document.fullscreenElement) void document.exitFullscreen().catch(() => undefined);
+  }, [inXR, simulating]);
   const plantRef = useRef<THREE.Group | null>(null);
   const facility = useMemo(() => ({ id: state.profile.id, name: state.profile.name }), [state.profile.id, state.profile.name]);
 
@@ -668,6 +675,7 @@ export function TwinVR({ state }: { state: FactoryState }) {
       document.querySelectorAll<HTMLElement>("div").forEach((el) => {
         if (el.shadowRoot && el.style.position === "fixed" && el.style.width === "100vw") el.style.visibility = hidden ? "hidden" : "";
       });
+      document.documentElement.toggleAttribute("data-sim-clean", hidden);
     };
     window.addEventListener("keydown", k);
     return () => window.removeEventListener("keydown", k);
@@ -835,7 +843,6 @@ export function TwinVR({ state }: { state: FactoryState }) {
                 <Button3D label={xrMode === "immersive-ar" ? "Move table" : tableVR ? "Full size" : "Table view"} color="#14b8a6" width={0.5} position={[-0.85, 0.88, -0.7]} onPress={toggleTable} />
                 <Button3D label="Recenter" color="#64748b" width={0.5} position={[0.85, 0.88, -0.7]} onPress={recenter} />
                 <Button3D label={findOpen ? "Hide Find" : "Find…"} color="#4c8dff" position={[-0.3, 0.88, -0.7]} width={0.5} onPress={() => setFindOpen(!findOpen)} />
-                <Button3D label={site ? "Hide website" : "Website…"} color="#0ea5e9" width={0.5} active={!!site} position={[0, 1.06, -0.7]} onPress={() => openSite(null, !site)} />
                 <VoiceRig3D voice={voice} compact={!!site} />
                 <Button3D label={seated ? "Seated: on" : "Seated: off"} color="#8b5cf6" width={0.5} active={seated} position={[-0.85, 0.52, -0.7]} onPress={() => setSeated(!seated)} />
                 <Button3D label={questPerf ? "Perf: 72fps" : "Quality"} color="#eab308" width={0.5} active={questPerf} position={[0.85, 0.52, -0.7]} onPress={() => setQuestPerf(!questPerf)} />
@@ -848,6 +855,16 @@ export function TwinVR({ state }: { state: FactoryState }) {
               <Board lines={[{ text: "Look down at a table or desk", tone: "title" }, { text: "Hold still to place the plant, or pinch", tone: "muted" }]} accent="#4c8dff" position={[0, 1.3, -0.9]} width={0.5} />
             )}
             {inXR && findOpen && <FindMenu index={index} onPick={goTo} onClose={() => setFindOpen(false)} />}
+            {/* The website's nav bar: low in your view like the headset's own system bar (above the window while a page is open). */}
+            {inXR && (
+              <VRNavBar
+                current={site}
+                onOpen={(href) => openSite(href)}
+                position={site ? (tableMode ? [0.35, seated ? 1.95 : 2.32, -1.38] : [0, seated ? 1.92 : 2.32, -1.22]) : tableMode ? [0.1, 1.1, -0.85] : [0, 1.1, -0.85]}
+                rotationX={site ? -0.15 : 0.55}
+                aboveEyes={site ? undefined : -0.5}
+              />
+            )}
             {inXR && site && (
               <VRBrowser
                 path={site}
@@ -857,17 +874,17 @@ export function TwinVR({ state }: { state: FactoryState }) {
                 }}
                 onClose={() => setSite(null)}
                 onOpenOnScreen={openOnScreen}
-                position={tableMode ? [0.3, seated ? 1.4 : 1.75, -1.4] : [0, seated ? 1.38 : 1.72, -1.35]}
+                position={tableMode ? [0.35, seated ? 1.35 : 1.72, -1.4] : [0, seated ? 1.32 : 1.72, -1.25]}
               />
             )}
             {inXR && heat && <Board lines={[{ text: HEAT_LABEL[heat], tone: "title" }, { text: HEAT_LEGEND[heat], tone: "muted" }]} accent="#f97316" position={[-0.8, 1.42, -1.1]} width={0.6} />}
             {inXR && replay && frame && <Board lines={replayLines(state, frame.hour)} accent="#38bdf8" position={[0.8, 1.5, -1.2]} width={0.7} />}
             {inXR && recordingOn && (
-              <group position={[0, 1.82, -1.2]}>
+              <group position={[0, 1.76, -1.2]}>
                 <Board
                   lines={[
-                    { text: "● REC · NEW · Meta Quest WebXR Spatial Twin", tone: "title" },
-                    ...(voice.heard ? [{ text: `🎙 “${voice.heard}”`, tone: "info" as const }] : []),
+                    { text: "New in the hackathon · Twin on Meta Quest", tone: "title" },
+                    ...(voice.heard ? [{ text: `“${voice.heard}”`, tone: "info" as const }] : []),
                     ...(voice.reply ? [{ text: voice.reply.slice(0, 140), tone: "muted" as const }] : []),
                   ]}
                   accent="#ef4444"
@@ -876,12 +893,12 @@ export function TwinVR({ state }: { state: FactoryState }) {
                 />
               </group>
             )}
-            {inXR && questPerf && (
+            {inXR && questPerf && !site && (
               <group position={[-0.88, 1.62, -1.1]} rotation={[0, 0.35, 0]}>
                 <Board
                   lines={[
-                    { text: `⚡ Quest Perf · 72 FPS`, tone: "title" },
-                    { text: "Locked 72Hz · Foveation 1.0 · Fixed DPR 1.0", tone: "muted" },
+                    { text: "Quest performance mode", tone: "title" },
+                    { text: "72 Hz target · foveation 1.0 · render scale 1.0", tone: "muted" },
                   ]}
                   accent="#eab308"
                   position={[0, 0, 0]}
@@ -978,6 +995,7 @@ export function TwinVR({ state }: { state: FactoryState }) {
             style={{ zIndex: 2147483647 }}
             className="fixed top-16 left-1/2 flex h-10 -translate-x-1/2 items-center gap-2 rounded-xl border border-line bg-surface px-5 text-[13.5px] font-medium text-ink shadow-2xl hover:bg-surface-2"
             data-testid="exit-vr"
+            data-sim-chrome
           >
             <LogOut className="h-4 w-4" /> Exit VR
           </button>,
@@ -1032,14 +1050,14 @@ export function TwinVR({ state }: { state: FactoryState }) {
       </div>
       <div hidden={inXR} className="absolute bottom-4 left-1/2 flex -translate-x-1/2 flex-wrap items-center justify-center gap-2" data-testid="vr-buttons">
         <button
-          onClick={() => void store.enterVR()}
+          onClick={() => (fullScreenSim(), void store.enterVR())}
           disabled={!support?.vr}
           className="flex h-10 items-center gap-2 rounded-xl border border-accent/60 bg-accent px-4 text-[13px] font-medium text-white shadow-lg disabled:opacity-40"
         >
           <Glasses className="h-4 w-4" /> Enter VR
         </button>
         <button
-          onClick={() => void store.enterAR()}
+          onClick={() => (fullScreenSim(), void store.enterAR())}
           disabled={!support?.ar}
           className="flex h-10 items-center gap-2 rounded-xl border border-line bg-surface px-4 text-[13px] font-medium text-ink shadow-lg disabled:opacity-40"
         >

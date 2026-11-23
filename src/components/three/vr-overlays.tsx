@@ -11,7 +11,7 @@ import type { AssetStatus, FactoryState, TelemetryReading } from "@/domain/types
 import type { HeatMetric } from "@/domain/voice-commands";
 import { machineParts } from "../iso/geometry";
 import { P } from "./scene";
-import { textTexture } from "./vr-ui";
+import { textTexture, THEME } from "./vr-ui";
 
 /* ─────────────────────────── heatmap ─────────────────────────── */
 
@@ -164,7 +164,7 @@ const glowTexture = (() => {
 })();
 
 function ValueTag({ text, color, position, scale = 1 }: { text: string; color: string; position: [number, number, number]; scale?: number }) {
-  const tex = useMemo(() => textTexture([{ text, color: "#f8fafc", font: "600 40px system-ui, sans-serif" }], 320, 84, "rgba(10,14,24,0.85)", color), [text, color]);
+  const tex = useMemo(() => textTexture([{ text, color: THEME.ink, font: "600 36px system-ui, sans-serif" }], 320, 84, undefined, color), [text, color]);
   useEffect(() => () => tex.dispose(), [tex]);
   return (
     <Billboard position={position}>
