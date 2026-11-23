@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
-import { useXR, useXRInputSourceEvent, useXRInputSourceState, XRSpace } from "@react-three/xr";
+import { DefaultXRHand, useXR, useXRInputSourceEvent, useXRInputSourceState, XRHandModel, XRSpace } from "@react-three/xr";
 import * as THREE from "three";
 import { create } from "zustand";
 import { controlTexture, textTexture, THEME } from "./vr-ui";
@@ -13,6 +13,149 @@ export const useFps = create<{ fps: number; ms: number; set: (fps: number, ms?: 
   ms: 0,
   set: (fps, ms = 0) => set({ fps, ms: ms || (fps > 0 ? Math.round((1000 / fps) * 10) / 10 : 0) }),
 }));
+
+/* ─────────────────────────── hands ─────────────────────────── */
+
+/**
+ * Hands in the style of Meta's Quest hands: a light, frosted, see-through hand with a bright outline
+ * along its silhouette, fading out toward the wrist, with the thumb and index tips lighting up as
+ * they close into a pinch. In WebXR the page draws the hands itself, so this is what you see on a
+ * headset. Skinned: it follows every tracked joint.
+ */
+const HAND_VERT = /* glsl */ `
+  #include <common>
+  #include <skinning_pars_vertex>
+  varying vec3 vN;
+  varying vec3 vV;
+  varying vec3 vW;
+  void main() {
+    #include <beginnormal_vertex>
+    #include <skinbase_vertex>
+    #include <skinnormal_vertex>
+    #include <begin_vertex>
+    #include <skinning_vertex>
+    vec4 w = modelMatrix * vec4(transformed, 1.0);
+    vec4 mv = viewMatrix * w;
+    vW = w.xyz;
+    vN = normalize(normalMatrix * objectNormal);
+    vV = normalize(-mv.xyz);
+    gl_Position = projectionMatrix * mv;
+  }`;
+const HAND_FRAG = /* glsl */ `
+  uniform vec3 uFill;
+  uniform vec3 uRim;
+  uniform vec3 uGlow;
+  uniform vec3 uWrist;
+  uniform vec3 uForward;
+  uniform vec3 uIndex;
+  uniform vec3 uThumb;
+  uniform float uPinch;
+  varying vec3 vN;
+  varying vec3 vV;
+  varying vec3 vW;
+  void main() {
+    // Fade out from the palm toward the wrist (no forearm stub).
+    float along = dot(vW - uWrist, uForward);
+    float fade = smoothstep(-0.015, 0.05, along);
+    #ifdef DEPTH_ONLY
+      if (fade < 0.5) discard;
+      gl_FragColor = vec4(0.0);
+    #else
+      float facing = abs(dot(normalize(vN), normalize(vV)));
+      float rim = pow(1.0 - facing, 3.0);
+      // Fingertip glow: grows as thumb and index close.
+      float tip = min(distance(vW, uIndex), distance(vW, uThumb));
+      float glow = (1.0 - smoothstep(0.004, 0.03, tip)) * (0.18 + 0.82 * uPinch);
+      vec3 col = mix(uFill, uRim, rim);
+      col = mix(col, uGlow, glow);
+      float alpha = (0.3 + 0.7 * rim + 0.6 * glow) * fade;
+      gl_FragColor = vec4(col, clamp(alpha, 0.0, 1.0));
+    #endif
+  }`;
+
+type HandUniforms = Record<"uWrist" | "uForward" | "uIndex" | "uThumb", { value: THREE.Vector3 }> & { uPinch: { value: number } };
+
+const handUniforms = (): HandUniforms & Record<string, THREE.IUniform> => ({
+  uFill: { value: new THREE.Color("#c9d3e3") },
+  uRim: { value: new THREE.Color("#ffffff") },
+  uGlow: { value: new THREE.Color("#8fd0ff") },
+  uWrist: { value: new THREE.Vector3() },
+  uForward: { value: new THREE.Vector3(0, 0, -1) },
+  uIndex: { value: new THREE.Vector3(1e3, 1e3, 1e3) },
+  uThumb: { value: new THREE.Vector3(1e3, 1e3, 1e3) },
+  uPinch: { value: 0 },
+});
+
+function QuestHandModel() {
+  const ref = useRef<THREE.Object3D>(null);
+  const uniforms = useMemo(handUniforms, []);
+  const bones = useRef<{ wrist?: THREE.Object3D; middle?: THREE.Object3D; index?: THREE.Object3D; thumb?: THREE.Object3D }>({});
+  const prepass = useRef<THREE.SkinnedMesh[]>([]);
+  useEffect(() => {
+    const material = new THREE.ShaderMaterial({ uniforms, vertexShader: HAND_VERT, fragmentShader: HAND_FRAG, transparent: true, depthWrite: false });
+    // A depth-only copy draws first (opaque pass), so the see-through hand shows only its front
+    // surface: curled fingers don't show through the palm. It skips the faded wrist.
+    const depth = new THREE.ShaderMaterial({ uniforms, vertexShader: HAND_VERT, fragmentShader: HAND_FRAG, defines: { DEPTH_ONLY: "" }, colorWrite: false });
+    const added: THREE.Object3D[] = [];
+    const meshes: THREE.SkinnedMesh[] = [];
+    ref.current?.traverse((o) => {
+      if ((o as THREE.SkinnedMesh).isSkinnedMesh) meshes.push(o as THREE.SkinnedMesh);
+      if (o.name === "wrist") bones.current.wrist = o;
+      if (o.name === "middle-finger-phalanx-proximal") bones.current.middle = o;
+      if (o.name === "index-finger-tip") bones.current.index = o;
+      if (o.name === "thumb-tip") bones.current.thumb = o;
+    });
+    for (const m of meshes) {
+      m.material = material;
+      const pre = new THREE.SkinnedMesh(m.geometry, depth);
+      pre.bind(m.skeleton, m.bindMatrix);
+      pre.frustumCulled = false;
+      // Last among opaque objects, so it never hides scene geometry behind the hand.
+      pre.renderOrder = 1e6;
+      pre.position.copy(m.position);
+      pre.quaternion.copy(m.quaternion);
+      pre.scale.copy(m.scale);
+      m.parent?.add(pre);
+      added.push(pre);
+    }
+    prepass.current = added as THREE.SkinnedMesh[];
+    return () => {
+      prepass.current = [];
+      added.forEach((o) => o.removeFromParent());
+      depth.dispose();
+      material.dispose();
+    };
+  }, [uniforms]);
+  useFrame(() => {
+    // The hand model re-applies colorWrite / renderOrder to every mesh inside it; keep the
+    // depth-only copies depth-only and last among opaque objects.
+    for (const pre of prepass.current) {
+      (pre.material as THREE.Material).colorWrite = false;
+      pre.renderOrder = 1e6;
+    }
+    const { wrist, middle, index, thumb } = bones.current;
+    if (!wrist || !middle || !index || !thumb) return;
+    wrist.getWorldPosition(uniforms.uWrist.value);
+    middle.getWorldPosition(uniforms.uForward.value).sub(uniforms.uWrist.value).normalize();
+    index.getWorldPosition(uniforms.uIndex.value);
+    thumb.getWorldPosition(uniforms.uThumb.value);
+    const d = uniforms.uIndex.value.distanceTo(uniforms.uThumb.value);
+    uniforms.uPinch.value = 1 - THREE.MathUtils.smoothstep(d, 0.012, 0.06);
+  });
+  return <XRHandModel ref={ref} />;
+}
+
+/** Tracked hand: the Quest-style model plus the usual pointers (touch, grab, ray, pinch-to-teleport). */
+export function QuestHand() {
+  return (
+    <>
+      <Suspense fallback={null}>
+        <QuestHandModel />
+      </Suspense>
+      <DefaultXRHand model={false} teleportPointer />
+    </>
+  );
+}
 
 /* ─────────────────────────── hand menu ─────────────────────────── */
 
@@ -231,3 +374,100 @@ export function FpsProbe() {
 
 /** The current XR session mode, for switching to the tabletop in passthrough. */
 export const useXRMode = () => useXR((s) => s.mode);
+
+/* ─────────────────────────── simulator mouse ─────────────────────────── */
+
+/**
+ * Headset simulator only: the simulator draws its controls on a transparent layer above the 3D view,
+ * so mouse clicks never reach the scene. This casts a ray from the headset's camera through the
+ * mouse and calls the object's own pointer handlers: hover, click and wheel work on every button,
+ * the nav bar and the website window. A real headset doesn't need it.
+ */
+export function SimulatorMouse({ enabled }: { enabled: boolean }) {
+  const gl = useThree((s) => s.gl);
+  const scene = useThree((s) => s.scene);
+  const fallback = useThree((s) => s.camera);
+  useEffect(() => {
+    if (!enabled) return;
+    let stop: (() => void) | null = null;
+    let tries = 0;
+    // The simulator builds its layer when the session starts: wait for it.
+    const id = window.setInterval(() => {
+      const runtime = gl.domElement.closest("[data-webxr_runtime]");
+      const layer = runtime
+        ? Array.from(runtime.querySelectorAll<HTMLCanvasElement>(":scope > canvas"))
+            .filter((c) => c !== gl.domElement)
+            .sort((a, b) => Number(getComputedStyle(b).zIndex) - Number(getComputedStyle(a).zIndex))[0]
+        : undefined;
+      if (!layer && ++tries < 40) return;
+      window.clearInterval(id);
+      const from = layer ?? gl.domElement;
+      const camera = () => {
+        const xr = gl.xr.getCamera();
+        return (xr.cameras[0] as THREE.PerspectiveCamera | undefined) ?? (fallback as THREE.PerspectiveCamera);
+      };
+      const ray = new THREE.Raycaster();
+      const ndc = new THREE.Vector2();
+      type Handlers = Record<string, ((e: unknown) => void) | undefined>;
+      const handlersOf = (o: THREE.Object3D | null) => (o as unknown as { __r3f?: { handlers?: Handlers } } | null)?.__r3f?.handlers;
+      /** The first object under the mouse that listens for pointer events (or its nearest listening parent). */
+      const pick = (ev: MouseEvent) => {
+        const rc = from.getBoundingClientRect();
+        ndc.set(((ev.clientX - rc.left) / rc.width) * 2 - 1, -((ev.clientY - rc.top) / rc.height) * 2 + 1);
+        ray.setFromCamera(ndc, camera());
+        for (const hit of ray.intersectObject(scene, true)) {
+          let shown = true;
+          for (let o: THREE.Object3D | null = hit.object; o; o = o.parent) if (!o.visible) shown = false;
+          if (!shown) continue;
+          for (let o: THREE.Object3D | null = hit.object; o; o = o.parent) {
+            const h = handlersOf(o);
+            if (h && Object.keys(h).length) return { hit, target: o, h };
+          }
+        }
+        return null;
+      };
+      const event = (ev: MouseEvent, hit: THREE.Intersection) => ({ ...hit, eventObject: hit.object, nativeEvent: ev, deltaY: (ev as WheelEvent).deltaY ?? 0, stopPropagation: () => undefined, pointerId: 1, pointerType: "mouse" });
+      let hovered: THREE.Object3D | null = null;
+      const move = (ev: PointerEvent) => {
+        const p = pick(ev);
+        if (hovered && hovered !== p?.target) handlersOf(hovered)?.onPointerOut?.({ nativeEvent: ev, stopPropagation: () => undefined });
+        if (p && hovered !== p.target) p.h.onPointerOver?.(event(ev, p.hit));
+        hovered = p?.target ?? null;
+        p?.h.onPointerMove?.(event(ev, p.hit));
+      };
+      const down = (ev: PointerEvent) => {
+        const p = pick(ev);
+        p?.h.onPointerDown?.(event(ev, p.hit));
+      };
+      const up = (ev: PointerEvent) => {
+        const p = pick(ev);
+        p?.h.onPointerUp?.(event(ev, p.hit));
+      };
+      const click = (ev: MouseEvent) => {
+        const p = pick(ev);
+        p?.h.onClick?.(event(ev, p.hit));
+      };
+      const wheel = (ev: WheelEvent) => {
+        const p = pick(ev);
+        p?.h.onWheel?.(event(ev, p.hit));
+      };
+      from.addEventListener("pointermove", move);
+      from.addEventListener("pointerdown", down);
+      from.addEventListener("pointerup", up);
+      from.addEventListener("click", click);
+      from.addEventListener("wheel", wheel, { passive: true });
+      stop = () => {
+        from.removeEventListener("pointermove", move);
+        from.removeEventListener("pointerdown", down);
+        from.removeEventListener("pointerup", up);
+        from.removeEventListener("click", click);
+        from.removeEventListener("wheel", wheel);
+      };
+    }, 150);
+    return () => {
+      window.clearInterval(id);
+      stop?.();
+    };
+  }, [enabled, gl, scene, fallback]);
+  return null;
+}

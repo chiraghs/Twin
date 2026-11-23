@@ -16,7 +16,7 @@ import { Button, Dialog } from "@/components/ui/primitives";
 import { cn } from "@/lib/cn";
 import { amrFleet } from "@/domain/intralogistics";
 import { activeAlarms, assetSignals, lineFlows } from "@/domain/live";
-import { cycleTime, electrical, machineStates, processValues, remainingLife, zoneEnvironment } from "@/domain/process-signals";
+import { machineStates, remainingLife, zoneEnvironment } from "@/domain/process-signals";
 import { quickWhatIf, type QuickWhatIf } from "@/domain/quick-what-if";
 import type { FactoryState } from "@/domain/types";
 import type { HeatMetric } from "@/domain/voice-commands";
@@ -29,7 +29,7 @@ import { P } from "./scene";
 import { Scene } from "./twin-3d";
 import { FIND_KIND_LABEL, findEntries, findIndex, standPoint, type FindEntry, type FindKind } from "./vr-search";
 import { GripTalk, useVrVoice, VoiceDock, VoiceRig3D } from "./vr-voice";
-import { FpsProbe, HandMenu, TablePlacer, useFps, type HandMenuItem } from "./vr-hands";
+import { FpsProbe, HandMenu, QuestHand, SimulatorMouse, TablePlacer, useFps, type HandMenuItem } from "./vr-hands";
 import { Board, Button3D, textTexture, THEME, type BoardLine, type Spark } from "./vr-ui";
 import { VRBrowser, VRNavBar } from "./vr-browser";
 import { AlarmSounds, FlowOverlay, HEAT_LABEL, HEAT_LEGEND, HEAT_METRICS, heatCells, HeatOverlay, replayEvents, replayFrame, replayStart, replayStatus } from "./vr-overlays";
@@ -280,6 +280,15 @@ const isLocalhost = () => typeof window !== "undefined" && ["localhost", "127.0.
  * emulator stands aside. With "Simulate Quest headset" on, that empty runtime is hidden for this
  * tab so the emulator can install. Never active on a real deployment.
  */
+/** Simulator only: the emulated head's starting pitch (radians, up is positive). Recordings can override it per page load. */
+function simPitch(): number {
+  try {
+    const v = Number(sessionStorage.getItem("twin-vr-sim-pitch"));
+    if (sessionStorage.getItem("twin-vr-sim-pitch") !== null && Number.isFinite(v)) return Math.max(-1, Math.min(1, v));
+  } catch {}
+  return -0.08;
+}
+
 function simulationOn(): boolean {
   if (!isLocalhost()) return false;
   try {
@@ -451,6 +460,7 @@ export function TwinVR({ state }: { state: FactoryState }) {
   /** Tabletop: the plant as a miniature on a real surface (passthrough) or in front of you (VR). */
   const [tableVR, setTableVR] = useState(false);
   const [table, setTable] = useState<{ at: THREE.Vector3; yaw: number } | null>(null);
+  const [rigOpen, setRigOpen] = useState(false);
   const [seated, setSeated] = useState(false);
   const [questPerf, setQuestPerf] = useState(true);
   const [prepareOpen, setPrepareOpen] = useState(false);
@@ -465,11 +475,12 @@ export function TwinVR({ state }: { state: FactoryState }) {
           syntheticEnvironment: "office_small",
           // One full-size view on screen (a headset renders both eyes itself).
           stereoEnabled: false,
-          headset: { position: [0, 1.7, 0], rotation: [0.12, 0, 0] },
+          headset: { position: [0, 1.7, 0], rotation: [simPitch(), 0, 0] },
           controller: { left: { position: [-0.32, -0.42, -0.45] }, right: { position: [0.32, -0.42, -0.45] } },
         },
         controller: { teleportPointer: true },
-        hand: { teleportPointer: true },
+        // Quest-style see-through hands with a light rim, with the default pointers.
+        hand: QuestHand,
         offerSession: false,
         // Quest performance: full foveation, and a steady 72 or 90 Hz rather than chasing 120.
         foveation: 1,
@@ -484,6 +495,9 @@ export function TwinVR({ state }: { state: FactoryState }) {
   const [flowOn, setFlowOn] = useState(true);
   const [replay, setReplay] = useState<{ hour: number; playing: boolean } | null>(null);
   const [whatIf, setWhatIf] = useState<QuickWhatIf | null>(null);
+  /** A selected machine shows one "Controls" button; its speed / trip / what-if panel opens on demand. */
+  const [controlsOpen, setControlsOpen] = useState(false);
+  useEffect(() => setControlsOpen(false), [selected]);
   /** The website panel in the headset: the page it shows, or null when closed. */
   const router = useRouter();
   const [site, setSite] = useState<string | null>(null);
@@ -510,10 +524,27 @@ export function TwinVR({ state }: { state: FactoryState }) {
     return store.subscribe((st) => {
       setInXR(st.session != null);
       setXrMode(st.mode);
-      if (!st.session) setTable(null);
+      if (!st.session) {
+        // Each session starts fresh: at the plant front, facing it, with no website window open.
+        setTable(null);
+        setRigOpen(false);
+        setSite(null);
+        setSelected(null);
+        setWhatIf(null);
+        setReplay(null);
+        const o = originRef.current;
+        if (o) {
+          o.position.fromArray(originPosRef.current);
+          o.rotation.set(0, 0, 0);
+        }
+      }
     });
   }, [store]);
   const exitXR = () => void store.getState().session?.end();
+  // Simulator only: scripted recordings and tests drive the emulated headset through this.
+  useEffect(() => {
+    if (simulating) Object.assign(window, { __twinXR: store, __twinOrigin: originRef });
+  }, [simulating, store]);
   /** Simulator: the browser goes full screen with the session (as a headset would), and back after it. */
   const fullScreenSim = () => {
     if (simulating && !document.fullscreenElement) void document.documentElement.requestFullscreen?.().catch(() => undefined);
@@ -557,9 +588,13 @@ export function TwinVR({ state }: { state: FactoryState }) {
   const eye = useMemo(() => front.clone().add(new THREE.Vector3(0, eyeHeight, 0)), [front, eyeHeight]);
   const lookAt = useMemo(() => center.clone().add(new THREE.Vector3(0, 0.6, 0)), [center]);
   const originPos = useMemo(() => front.toArray() as [number, number, number], [front]);
+  const originPosRef = useRef(originPos);
+  originPosRef.current = originPos;
   const walkBounds = useMemo(() => ({ x0: b.x0 - 0.5, x1: b.x1 + 0.5, z0: b.y0 - 0.5, z1: b.y1 + 3 }), [b.x0, b.x1, b.y0, b.y1]);
   const headset = !!support && (support.vr || support.ar);
   const tableMode = (inXR && xrMode === "immersive-ar") || tableVR;
+  /** Passthrough, before the plant is on a surface: only the placement hint shows. */
+  const placing = tableMode && xrMode === "immersive-ar" && !table;
   /** Tabletop scale: the whole plant fits in about 0.8 m. */
   const tableScale = 0.8 / Math.max(1, span);
   /** In VR the table appears in front of you at desk height; in passthrough you place it on a real surface. */
@@ -717,7 +752,7 @@ export function TwinVR({ state }: { state: FactoryState }) {
     });
   }, [heat, frame, state, layout]);
   const whatIfBoard = useMemo(() => {
-    if (!whatIf) return null;
+    if (!whatIf || whatIf.assetId === selected) return null;
     const pm = layout.machines.find((m) => m.m.id === whatIf.assetId);
     if (!pm) return null;
     const w = whatIf;
@@ -734,7 +769,7 @@ export function TwinVR({ state }: { state: FactoryState }) {
       { text: "Simulated estimate · nothing changed", tone: "muted" },
     ];
     return { lines, accent: w.better ? "#22c55e" : "#ef4444", position: P(pm.x, pm.y, machineParts(pm.m.kind).height + 3.3) };
-  }, [whatIf, layout]);
+  }, [whatIf, layout, selected]);
   useEffect(() => {
     if (!whatIf) return;
     const t = setTimeout(() => setWhatIf(null), 60_000);
@@ -769,27 +804,28 @@ export function TwinVR({ state }: { state: FactoryState }) {
         const sig = assetSignals(state, a, { full: false });
         const v = (n: string) => sig.find((x) => x.name === n);
         const rul = remainingLife(state, a);
-        const ct = cycleTime(a);
-        const e = electrical(state, a);
-        const pv = processValues(state, a);
         const rejects = sig.find((x) => x.name === "Rejects caused (8 h)")?.value as number | undefined;
-        const fmtV = (x: number) => (Math.abs(x) >= 100 ? x.toFixed(0) : x.toFixed(1));
+        // Essentials only; electrical and process values live on the Assets page (website window).
+        const stateLine = ms ? (ms.bottleneck && ms.state === "running" ? "Bottleneck · sets the line's pace" : `${ms.state[0].toUpperCase()}${ms.state.slice(1)} · ${ms.reason}`) : null;
+        const wi = whatIf && whatIf.assetId === id ? whatIf : null;
+        const trip = (h: number | null) => (h === null ? "none" : `h+${Math.round(h)}`);
         lines = [
           { text: `${a.id} · ${a.name}`, tone: "title" },
-          ...(alarm ? [{ text: `${alarm.acknowledged ? "ACK · " : ""}${alarm.title}`, tone: alarm.acknowledged ? ("muted" as const) : alarm.severity === "critical" ? ("bad" as const) : ("warn" as const) }] : []),
-          ...(ms ? [{ text: `${ms.bottleneck && ms.state === "running" ? "BOTTLENECK" : ms.state.toUpperCase()} · ${ms.reason.replace(/^Bottleneck: /, "")}`, tone: ms.state === "fault" ? ("bad" as const) : ms.state === "starved" || ms.state === "blocked" ? ("warn" as const) : ms.bottleneck ? ("info" as const) : ("ok" as const) }] : []),
+          ...(stateLine ? [{ text: stateLine, tone: ms!.state === "fault" ? ("bad" as const) : ms!.state === "starved" || ms!.state === "blocked" ? ("warn" as const) : ms!.bottleneck ? ("info" as const) : ("ok" as const) }] : []),
           { text: `Life: ${rul.summary}`, tone: rul.tone },
-          { text: `${Math.round(a.signal.throughput)} u/h · cycle ${ct.actualS === null ? "—" : `${ct.actualS.toFixed(1)} s`} (ideal ${ct.idealS.toFixed(1)} s)`, tone: "muted" },
           { text: `Vibration ${a.signal.vibration.toFixed(2)} mm/s · ${a.signal.temperature.toFixed(1)} °C`, tone: toneOf(v("Vibration")?.state === "ok" ? (v("Temperature")?.state ?? "ok") : (v("Vibration")?.state ?? "ok")) },
-          { text: `${a.signal.powerKw.toFixed(1)} kW · ${e.currentA.toFixed(1)} A · PF ${e.powerFactor.toFixed(2)} · ${e.voltageV.toFixed(0)} V`, tone: "muted" },
-          ...(pv.length ? [{ text: pv.slice(0, 2).map((p) => `${p.name} ${fmtV(p.value)}${p.unit === "%" ? "%" : ` ${p.unit}`}`).join(" · "), tone: pv.some((p) => p.limits && p.value >= p.limits.alarm) ? ("warn" as const) : ("muted" as const) }] : []),
-          { text: `Health ${a.healthScore.toFixed(0)}/100${rejects ? ` · ${rejects} rejects caused (8 h)` : ""}`, tone: a.healthScore < 45 ? "bad" : a.healthScore < 75 ? "warn" : "muted" },
+          { text: `Health ${a.healthScore.toFixed(0)}/100${rejects ? ` · ${rejects} rejects (8 h)` : ""}`, tone: a.healthScore < 45 ? "bad" : a.healthScore < 75 ? "warn" : "muted" },
+          ...(wi
+            ? [
+                { text: `What if ${wi.change}`, tone: "title" as const },
+                { text: `Trip ${trip(wi.asIs.failureHour)} → ${trip(wi.plan.failureHour)} · late ${wi.asIs.lateUnits.toLocaleString("en-US")} → ${wi.plan.lateUnits.toLocaleString("en-US")}`, tone: wi.better ? ("ok" as const) : ("bad" as const) },
+              ]
+            : []),
         ];
         const hist = (state.telemetry[a.id] ?? []).slice(-36);
         sparks = [
           { label: "Vibration 6 h", values: hist.map((r) => r.vibration), color: "#60a5fa", limit: a.thresholds.vibrationAlarm },
           { label: "Temp 6 h", values: hist.map((r) => r.temperature), color: "#f97316", limit: a.thresholds.temperatureAlarm },
-          { label: "Power 6 h", values: hist.map((r) => r.powerKw), color: "#a78bfa" },
         ];
       } else {
         const rul = remainingLife(state, a);
@@ -801,7 +837,7 @@ export function TwinVR({ state }: { state: FactoryState }) {
       }
       return [{ id, lines, sparks, accent: frame ? "#38bdf8" : alarm ? (alarm.severity === "critical" ? "#ef4444" : "#f59e0b") : "#4c8dff", position: P(pm.x, pm.y, machineParts(pm.m.kind).height + 0.9) }];
     });
-  }, [state, layout, selected, frame]);
+  }, [state, layout, selected, frame, whatIf]);
   const boarded = useMemo(() => new Set(boards.map((b) => b.id)), [boards]);
 
   const selectedPos = useMemo<[number, number, number] | null>(() => {
@@ -830,15 +866,14 @@ export function TwinVR({ state }: { state: FactoryState }) {
     <div className="relative h-full w-full" data-testid="twin-vr">
       <Canvas dpr={questPerf ? [1, 1] : [1, 1.5]} camera={{ fov: 70, near: 0.01, far: 400, position: eye.toArray() }} onCreated={({ gl }) => void (gl.toneMapping = THREE.ACESFilmicToneMapping)} aria-label="The plant in VR">
         <XR store={store}>
+          <SimulatorMouse enabled={simulating && inXR} />
           <XROrigin ref={originRef} position={originPos}>
             {/* Exit VR: always within reach, at waist height in front of you; moves and turns with you. */}
             {/* Waist-height controls within arm's reach while seated. In table view they swing to your left so the table stays clear. */}
-            {inXR && (
-              <group
-                position={tableMode ? [-0.55, seated ? -0.16 : 0, 0.1] : [0, seated ? -0.16 : 0, seated ? 0.08 : 0]}
-                rotation-y={tableMode ? 0.75 : 0}
-                rotation-x={seated ? 0.22 : 0}
-              >
+            {/* Full controls at waist height within reach. In table view they fold into a small group at your
+                left (Controls opens them), and while you place the plant only the placement hint shows. */}
+            {inXR && !placing && (!tableMode || rigOpen) && (
+              <group position={[0, seated ? -0.16 : 0, seated ? 0.08 : 0]} rotation-x={seated ? 0.22 : 0}>
                 <Button3D label="Exit VR" color="#64748b" position={[0.3, 0.88, -0.7]} width={0.5} onPress={exitXR} />
                 <Button3D label={xrMode === "immersive-ar" ? "Move table" : tableVR ? "Full size" : "Table view"} color="#14b8a6" width={0.5} position={[-0.85, 0.88, -0.7]} onPress={toggleTable} />
                 <Button3D label="Recenter" color="#64748b" width={0.5} position={[0.85, 0.88, -0.7]} onPress={recenter} />
@@ -849,20 +884,39 @@ export function TwinVR({ state }: { state: FactoryState }) {
                 <Button3D label={heat ? `Heat: ${HEAT_LABEL[heat]}` : "Heat: off"} color="#f97316" width={0.52} active={!!heat} position={[-0.35, 0.52, -0.7]} onPress={() => setHeat(nextHeat(heat))} />
                 <Button3D label={flowOn ? "Flow: on" : "Flow: off"} color="#22c55e" width={0.4} active={flowOn} position={[0.12, 0.52, -0.7]} onPress={() => setFlowOn(!flowOn)} />
                 <Button3D label={replay ? "Live" : "Replay 6 h"} color="#38bdf8" width={0.46} active={!!replay} position={[0.55, 0.52, -0.7]} onPress={() => startReplay(replay ? null : 6)} />
+                {tableMode && <Button3D label="Hide controls" color="#64748b" width={0.46} position={[0, 1.04, -0.7]} onPress={() => setRigOpen(false)} />}
               </group>
             )}
-            {tableMode && !table && xrMode === "immersive-ar" && (
-              <Board lines={[{ text: "Look down at a table or desk", tone: "title" }, { text: "Hold still to place the plant, or pinch", tone: "muted" }]} accent="#4c8dff" position={[0, 1.3, -0.9]} width={0.5} />
+            {inXR && !placing && tableMode && !rigOpen && (
+              // Table view: a small column low at your left, clear of the table, with Twin's answers above it.
+              <group position={[-0.35, seated ? -0.16 : 0, 0]} rotation-y={0.75}>
+                {/* Tilted back to face your eyes as you glance down at it. */}
+                <group position={[0, 0.8, -0.7]} rotation-x={-0.6}>
+                  <Button3D label="Controls" color="#4c8dff" width={0.36} position={[0, 0.18, 0]} onPress={() => setRigOpen(true)} />
+                  <Button3D label={xrMode === "immersive-ar" ? "Move table" : "Full size"} color="#14b8a6" width={0.36} position={[0, 0.06, 0]} onPress={toggleTable} />
+                  <Button3D label="Exit VR" color="#64748b" width={0.36} position={[0, -0.06, 0]} onPress={exitXR} />
+                  <VoiceRig3D voice={voice} compact minimal talkAt={[0, -0.18, 0]} boardAt={[0, 0.44, 0]} boardYaw={0} />
+                </group>
+              </group>
+            )}
+            {placing && (
+              <group position={[0, 0, 0]}>
+                <Board lines={[{ text: "Look down at a table or desk", tone: "title" }, { text: "The plant lands on the blue ring. No table? Place it in front.", tone: "muted" }]} accent="#4c8dff" position={[0, 1.42, -1.0]} width={0.56} />
+                <Button3D label="Place in front" color="#4c8dff" width={0.3} position={[-0.16, 1.27, -1.0]} onPress={placeVRTable} />
+                <Button3D label="Exit VR" color="#64748b" width={0.3} position={[0.16, 1.27, -1.0]} onPress={exitXR} />
+              </group>
             )}
             {inXR && findOpen && <FindMenu index={index} onPick={goTo} onClose={() => setFindOpen(false)} />}
             {/* The website's nav bar: low in your view like the headset's own system bar (above the window while a page is open). */}
-            {inXR && (
+            {inXR && !placing && (
               <VRNavBar
                 current={site}
                 onOpen={(href) => openSite(href)}
-                position={site ? (tableMode ? [0.35, seated ? 1.95 : 2.32, -1.38] : [0, seated ? 1.92 : 2.32, -1.22]) : tableMode ? [0.1, 1.1, -0.85] : [0, 1.1, -0.85]}
-                rotationX={site ? -0.15 : 0.55}
-                aboveEyes={site ? undefined : -0.5}
+                // Table view: hung above and behind the table, so it never lies across the plant you look down at.
+                position={site ? (tableMode ? [0.35, seated ? 1.95 : 2.32, -1.38] : [0, seated ? 1.92 : 2.32, -1.22]) : tableMode ? [0, 1.5, -1.35] : [0, 1.1, -0.85]}
+                rotationX={site ? -0.15 : tableMode ? 0.08 : 0.55}
+                aboveEyes={site ? undefined : tableMode ? -0.18 : -0.5}
+                legend={heat && !site ? `${HEAT_LABEL[heat]} · ${HEAT_LEGEND[heat]}` : undefined}
               />
             )}
             {inXR && site && (
@@ -877,7 +931,6 @@ export function TwinVR({ state }: { state: FactoryState }) {
                 position={tableMode ? [0.35, seated ? 1.35 : 1.72, -1.4] : [0, seated ? 1.32 : 1.72, -1.25]}
               />
             )}
-            {inXR && heat && <Board lines={[{ text: HEAT_LABEL[heat], tone: "title" }, { text: HEAT_LEGEND[heat], tone: "muted" }]} accent="#f97316" position={[-0.8, 1.42, -1.1]} width={0.6} />}
             {inXR && replay && frame && <Board lines={replayLines(state, frame.hour)} accent="#38bdf8" position={[0.8, 1.5, -1.2]} width={0.7} />}
             {inXR && recordingOn && (
               <group position={[0, 1.76, -1.2]}>
@@ -893,19 +946,9 @@ export function TwinVR({ state }: { state: FactoryState }) {
                 />
               </group>
             )}
-            {inXR && questPerf && !site && (
-              <group position={[-0.88, 1.62, -1.1]} rotation={[0, 0.35, 0]}>
-                <Board
-                  lines={[
-                    { text: "Quest performance mode", tone: "title" },
-                    { text: "72 Hz target · foveation 1.0 · render scale 1.0", tone: "muted" },
-                  ]}
-                  accent="#eab308"
-                  position={[0, 0, 0]}
-                  width={0.52}
-                />
-              </group>
-            )}
+            {/* Palm menu: inside the origin, so the hand's pose (relative to it) puts the menu on your hand
+                wherever you have walked or teleported. */}
+            {inXR && <HandMenu items={handItems} label={tableMode ? "Tabletop" : heat ? HEAT_LABEL[heat] : "Twin"} />}
           </XROrigin>
           {!tableMode && <Locomotion origin={originRef} />}
           {/* Teleport: push a thumbstick forward (or pinch-and-hold with hands), aim at the floor, release. */}
@@ -923,7 +966,6 @@ export function TwinVR({ state }: { state: FactoryState }) {
           {/* In VR the plant has a sky; in passthrough the background stays clear so your room shows. */}
           {inXR && xrMode === "immersive-vr" && <color attach="background" args={[pal.theme === "dark" ? "#0b1220" : "#dfe6ee"]} />}
           <CameraRef target={camRef} />
-          {inXR && <HandMenu items={handItems} label={tableMode ? "Tabletop" : heat ? HEAT_LABEL[heat] : "Twin"} />}
           {/* Passthrough: find a real table and pinch to put the plant on it. */}
           {tableMode && !table && xrMode === "immersive-ar" && <TablePlacer onPlace={(at, yaw) => setTable({ at, yaw })} />}
           {/* Virtual command desk slab underneath the miniature factory when in table mode (non-passthrough) */}
@@ -965,7 +1007,14 @@ export function TwinVR({ state }: { state: FactoryState }) {
                 })}
                 {selectedPos && selected && !replay && (
                   <group position={tableMode ? [selectedPos[0], 0.05 / tableScale, selectedPos[2] + 0.12 / tableScale] : selectedPos} scale={tableMode ? 0.22 / tableScale : 1}>
-                    <ControlPanel state={state} assetId={selected} position={[0, 0, 0]} onWhatIf={(c) => runWhatIf(selected, c)} />
+                    {controlsOpen ? (
+                      <>
+                        <ControlPanel state={state} assetId={selected} position={[0, 0, 0]} onWhatIf={(c) => runWhatIf(selected, c)} />
+                        <Button3D label="Hide controls" color="#64748b" width={0.5} position={[0, -0.62, 0]} onPress={() => setControlsOpen(false)} />
+                      </>
+                    ) : (
+                      <Button3D label="Controls" color="#4c8dff" width={0.42} position={[0, -0.1, 0]} onPress={() => setControlsOpen(true)} />
+                    )}
                   </group>
                 )}
                 {heat && <HeatOverlay cells={cells} layout={layout} ghost={!!replay} floorOnly={boarded} tagScale={tableMode ? 2.5 : 1} />}

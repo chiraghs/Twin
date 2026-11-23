@@ -183,6 +183,9 @@ function ValueTag({ text, color, position, scale = 1 }: { text: string; color: s
 export function HeatOverlay({ cells, layout, ghost = false, floorOnly, tagScale = 1 }: { cells: HeatCell[]; layout: Layout; ghost?: boolean; /** Machines showing a board: floor glow only, the board carries the value. */ floorOnly?: Set<string>; /** Larger tags on the tabletop miniature. */ tagScale?: number }) {
   const kinds = useMemo(() => new Map(layout.machines.map((m) => [m.m.id, m.m.kind])), [layout]);
   const glow = useMemo(() => glowTexture(), []);
+  // Calm by default: every machine gets a floor glow; only the few that stand out (worst first) get a
+  // column and a value tag, so the view stays readable.
+  const notable = useMemo(() => new Set([...cells].filter((c) => c.t >= 0.35).sort((a, b) => b.t - a.t).slice(0, 3).map((c) => c.assetId)), [cells]);
   return (
     <group name="heatmap">
       {cells.map((c) => {
@@ -191,20 +194,20 @@ export function HeatOverlay({ cells, layout, ghost = false, floorOnly, tagScale 
         const f = FOOTPRINT[kind];
         const top = machineParts(kind).height;
         const r = Math.max(f.L, f.W) * 0.9 + 0.45;
-        const h = 0.25 + c.t * 2.2;
+        const h = 0.2 + c.t * 1.1;
         return (
           <group key={c.assetId}>
             <mesh rotation-x={-Math.PI / 2} position={P(c.x, c.y, 0.015)}>
               <planeGeometry args={[r * 2, r * 2]} />
               <meshBasicMaterial map={glow} color={c.color} transparent opacity={ghost ? 0.5 : 0.8} depthWrite={false} toneMapped={false} />
             </mesh>
-            {!floorOnly?.has(c.assetId) && (
+            {!floorOnly?.has(c.assetId) && notable.has(c.assetId) && (
               <>
                 <mesh position={P(c.x, c.y, top + 0.15 + h / 2)}>
-                  <cylinderGeometry args={[0.14, 0.14, h, 20, 1, true]} />
-                  <meshBasicMaterial color={c.color} transparent opacity={ghost ? 0.35 : 0.55} depthWrite={false} toneMapped={false} side={THREE.DoubleSide} wireframe={ghost} />
+                  <cylinderGeometry args={[0.1, 0.1, h, 20, 1, true]} />
+                  <meshBasicMaterial color={c.color} transparent opacity={ghost ? 0.3 : 0.4} depthWrite={false} toneMapped={false} side={THREE.DoubleSide} wireframe={ghost} />
                 </mesh>
-                <ValueTag text={c.label} color={c.color} position={P(c.x, c.y, top + 0.35 * tagScale + h)} scale={tagScale} />
+                <ValueTag text={c.label} color={c.color} position={P(c.x, c.y, top + 0.3 * tagScale + h)} scale={tagScale * 0.7} />
               </>
             )}
           </group>

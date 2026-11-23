@@ -473,28 +473,38 @@ function HoldButton({ label, color, position, width, onDown, onUp, onClick, acti
 
 /** Talk / mute / mic buttons at waist height and the voice board in front of you (children of the XR origin). */
 /** `compact`: smaller and lower, below the website panel when it is open. */
-export function VoiceRig3D({ voice, compact }: { voice: VrVoice; compact?: boolean }) {
+type Vec3 = [number, number, number];
+/** `minimal`: only the talk button (at `talkAt`) and the answer card (at `boardAt`), for the folded table-view controls. */
+export function VoiceRig3D({ voice, compact, minimal, talkAt, boardAt, boardYaw = -0.3 }: { voice: VrVoice; compact?: boolean; minimal?: boolean; talkAt?: Vec3; boardAt?: Vec3; boardYaw?: number }) {
   const { muted, micOff, setMuted, setMicOff } = useVoiceSettings();
+  // The card shows while you talk and for a while after the answer, then gets out of the way.
+  const [fresh, setFresh] = useState(true);
+  useEffect(() => {
+    setFresh(true);
+    if (voice.status !== "idle") return;
+    const t = window.setTimeout(() => setFresh(false), 10_000);
+    return () => window.clearTimeout(t);
+  }, [voice.status, voice.heard, voice.reply]);
   const boardTex = useMemo(() => {
     if (voice.status === "idle" && !voice.heard && !voice.reply) return null;
     const head = voice.status === "listening" ? "Listening… release to send" : voice.status === "thinking" ? "Thinking…" : "Twin";
     const lines = [
       { text: head, color: voice.status === "listening" ? THEME.criticalInk : THEME.ink, font: `600 26px ${FONT}`, dot: voice.status === "listening" ? THEME.critical : THEME.agent },
       ...(voice.heard ? [{ text: `“${voice.heard}”`, color: THEME.ink2, font: `italic 400 24px ${FONT}` }] : []),
-      ...(voice.reply ? [{ text: voice.reply.slice(0, 420), color: THEME.ink, font: `400 25px ${FONT}` }] : []),
+      ...(voice.reply ? [{ text: voice.reply.length > 230 ? `${voice.reply.slice(0, 228).replace(/\s+\S*$/, "")}…` : voice.reply, color: THEME.ink, font: `400 25px ${FONT}` }] : []),
     ];
     return texture(lines, 900, 420, voice.status === "listening" ? THEME.critical : THEME.lineStrong);
   }, [voice.status, voice.heard, voice.reply]);
   useEffect(() => () => boardTex?.t.dispose(), [boardTex]);
   return (
     <>
-      <HoldButton label={micOff ? "Mic is off" : voice.status === "listening" ? "Listening…" : "Hold to talk"} color="#ef4444" width={0.5} position={[-0.3, 0.7, -0.7]} active={voice.status === "listening"} onDown={micOff ? undefined : voice.start} onUp={voice.stop} />
-      <HoldButton label={muted ? "Sound off" : "Sound on"} color="#64748b" width={0.28} position={[0.07, 0.7, -0.7]} onClick={() => setMuted(!muted)} active={muted} />
-      <HoldButton label={micOff ? "Mic off" : "Mic on"} color="#64748b" width={0.28} position={[0.38, 0.7, -0.7]} onClick={() => setMicOff(!micOff)} active={micOff} />
-      {boardTex && (
+      <HoldButton label={micOff ? "Mic is off" : voice.status === "listening" ? "Listening…" : "Hold to talk"} color="#ef4444" width={minimal ? 0.36 : 0.5} position={talkAt ?? [-0.3, 0.7, -0.7]} active={voice.status === "listening"} onDown={micOff ? undefined : voice.start} onUp={voice.stop} />
+      {!minimal && <HoldButton label={muted ? "Sound off" : "Sound on"} color="#64748b" width={0.28} position={[0.07, 0.7, -0.7]} onClick={() => setMuted(!muted)} active={muted} />}
+      {!minimal && <HoldButton label={micOff ? "Mic off" : "Mic on"} color="#64748b" width={0.28} position={[0.38, 0.7, -0.7]} onClick={() => setMicOff(!micOff)} active={micOff} />}
+      {boardTex && (fresh || voice.status !== "idle") && (
         // Low and to the right of the view, so it never covers what you are looking at.
-        <mesh position={compact ? [0.62, 1.06, -1.05] : [0.66, 1.22, -1.05]} rotation={[0, -0.45, 0]}>
-          <planeGeometry args={compact ? [0.5, 0.5 * boardTex.aspect] : [0.72, 0.72 * boardTex.aspect]} />
+        <mesh position={boardAt ?? (compact ? [0.6, 1.06, -1.05] : [0.6, 1.2, -1.1])} rotation={[0, boardYaw, 0]}>
+          <planeGeometry args={compact ? [0.46, 0.46 * boardTex.aspect] : [0.56, 0.56 * boardTex.aspect]} />
           <meshBasicMaterial map={boardTex.t} transparent toneMapped={false} depthTest={false} />
         </mesh>
       )}

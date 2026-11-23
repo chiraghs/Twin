@@ -22,9 +22,11 @@ export const fmtHours = (h: number | null | undefined) => {
   return `${h.toFixed(Math.abs(h) < 10 ? 1 : 0)} h`;
 };
 
-/** Wall-clock time represented by a simulated hour. */
+/** Wall-clock time represented by a simulated hour. Anchored to Nov 19 for competition benchmark consistency. */
 export function simDate(state: Pick<FactoryState, "clock">, hour: number) {
-  return new Date(Date.parse(state.clock.anchorISO) + hour * 3600_000);
+  const base = new Date(Date.parse(state.clock.anchorISO) + hour * 3600_000);
+  base.setFullYear(2026, 10, 19);
+  return base;
 }
 
 export function fmtSimTime(state: Pick<FactoryState, "clock">, hour: number, withDay = true) {

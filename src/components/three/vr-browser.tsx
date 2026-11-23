@@ -7,7 +7,7 @@ import * as THREE from "three";
 import { useFactory } from "@/client/store";
 import { pageLabel, VR_PAGES } from "@/domain/site-pages";
 import { capturePage, clickPage, scrollPage, VR_BROWSER_NAME } from "./vr-page-capture";
-import { FONT, THEME } from "./vr-ui";
+import { FONT, textTexture, THEME } from "./vr-ui";
 
 /** CSS size of the page area; the window adds the site's sidebar and a top bar around it. */
 const VW = 1280;
@@ -446,7 +446,9 @@ const eyeTmp = new THREE.Vector3();
  * The website's nav bar, always in view at the top while in VR (like a site header): pick a page
  * and it opens in the website window in front of you.
  */
-export function VRNavBar({ position, rotationX = 0.32, current, onOpen, aboveEyes }: { position: [number, number, number]; rotationX?: number; current: string | null; onOpen: (href: string | null) => void; /** Keep the bar this far from your eye height (metres, negative is below) instead of a fixed height. */ aboveEyes?: number }) {
+export function VRNavBar({ position, rotationX = 0.32, current, onOpen, aboveEyes, legend }: { position: [number, number, number]; rotationX?: number; current: string | null; onOpen: (href: string | null) => void; /** Keep the bar this far from your eye height (metres, negative is below) instead of a fixed height. */ aboveEyes?: number; /** A small chip above the bar (the heatmap's legend). */ legend?: string }) {
+  const legendTex = useMemo(() => (legend ? textTexture([{ text: legend, color: THEME.ink2, font: "500 22px system-ui, sans-serif" }], 560, 48) : null), [legend]);
+  useEffect(() => () => legendTex?.dispose(), [legendTex]);
   const mesh = useRef<THREE.Mesh>(null);
   const camera = useThree((st) => st.camera);
   useFrame(() => {
@@ -545,6 +547,12 @@ export function VRNavBar({ position, rotationX = 0.32, current, onOpen, aboveEye
     >
       <planeGeometry args={[NAV_W, NAV_W * (NH / NW)]} />
       <meshBasicMaterial map={tex} transparent toneMapped={false} />
+      {legendTex && (
+        <mesh position={[-NAV_W / 2 + 0.29, NAV_W * (NH / NW) / 2 + 0.03, 0]} raycast={() => null}>
+          <planeGeometry args={[0.56, 0.048]} />
+          <meshBasicMaterial map={legendTex} transparent toneMapped={false} />
+        </mesh>
+      )}
     </mesh>
   );
 }

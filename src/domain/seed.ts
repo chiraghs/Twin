@@ -732,8 +732,8 @@ function buildCameras(lines: ProductionLine[], assets: Asset[], quality: Factory
 /** Seed for a newly created factory's simulated noise (changes every second). */
 export const newFactorySeed = (nowMs = Date.now()) => Math.floor(nowMs / 1000) % 2147483647;
 
-/** Anchor demo time at the top of the current hour so the "shift clock" reads naturally. */
-export function defaultAnchor(now = new Date()) {
+/** Anchor demo time at the top of the current hour on Nov 19 so the shift clock reads naturally. */
+export function defaultAnchor(now = new Date("2026-11-19T09:00:00.000Z")) {
   const d = new Date(now);
   d.setMinutes(0, 0, 0);
   return d.toISOString();
