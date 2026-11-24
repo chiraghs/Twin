@@ -95,10 +95,24 @@ export const useBuilder = create<BuilderStore>()(
           const reader = res.body.getReader();
           const decoder = new TextDecoder();
           let buf = "";
+          // One small top-right notice per run when the AI fails and the agent carries on without it.
+          // Shown once the draft stage settles, naming the bigger fallback (template draft over missing research).
+          let fallbackShown = false;
+          let researchFailed = false;
+          const fallback = (detail: string) => {
+            if (fallbackShown) return;
+            fallbackShown = true;
+            useFactory.getState().toast({ tone: "info", corner: "top", title: "AI unavailable · using fallback", detail });
+          };
           const handle = (e: BuilderEvent) => {
             switch (e.type) {
               case "stage":
                 set((s) => ({ stages: { ...s.stages, [e.stage]: { status: e.status, summary: e.summary ?? s.stages[e.stage].summary } } }));
+                if (e.stage === "research" && e.status === "error") researchFailed = true;
+                if (e.stage === "draft" && (e.status === "done" || e.status === "error")) {
+                  if (/AI draft failed/.test(e.summary ?? "")) fallback(e.status === "done" ? "Drafted from the template." : "Pick a template to start from.");
+                  else if (researchFailed) fallback("Drafted without web research.");
+                }
                 break;
               case "reading":
                 set({ reading: e.reading });

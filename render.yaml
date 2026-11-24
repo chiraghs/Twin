@@ -42,3 +42,20 @@ services:
         sync: false
       - key: TWIN_ADMIN_KEY
         generateValue: true
+
+  # ── 3. Meta Model API relay (US) ──────────────────────────────────────
+  # The services above run in Singapore, where the Meta Model API answers "model not found".
+  # This forwards their Meta calls from Oregon. Holds no API key. On both services above set
+  # META_API_BASE=https://<this service's URL>/<its RELAY_SECRET>/v1
+  - type: web
+    name: twin-meta-relay
+    runtime: node
+    region: oregon
+    plan: free
+    rootDir: relay
+    buildCommand: echo "no build"
+    startCommand: node server.mjs
+    healthCheckPath: /healthz
+    envVars:
+      - key: RELAY_SECRET
+        generateValue: true

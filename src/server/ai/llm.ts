@@ -90,6 +90,7 @@ export const errorMessage = (e: unknown) => (e instanceof Error ? (e.name === "A
 
 export async function metaPost(path: string, body: unknown, timeoutMs: number): Promise<Record<string, unknown>> {
   const cfg = aiConfig();
+  const started = Date.now();
   const res = await fetch(`${cfg.baseUrl}${path}`, {
     method: "POST",
     headers: { "content-type": "application/json", authorization: `Bearer ${metaApiKey()}` },
@@ -98,6 +99,12 @@ export async function metaPost(path: string, body: unknown, timeoutMs: number): 
     cache: "no-store",
   });
   const text = await res.text();
+  // One line per call in the server log (Render → Logs). Host only: a relay URL's secret path and the key are never printed.
+  const model = (body as { model?: unknown } | null)?.model;
+  const requestId = res.headers.get("x-request-id") ?? res.headers.get("x-fb-trace-id") ?? res.headers.get("x-fb-request-id");
+  const line = `[meta-api] POST ${new URL(cfg.baseUrl).host}${path} model=${typeof model === "string" ? model : "-"} status=${res.status} ${Date.now() - started}ms${requestId ? ` request-id=${requestId}` : ""}`;
+  if (res.ok) console.log(line);
+  else console.error(`${line} error=${text.replace(/\s+/g, " ").slice(0, 500)}`);
   let data: Record<string, unknown> = {};
   try {
     data = text ? JSON.parse(text) : {};

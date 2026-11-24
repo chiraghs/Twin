@@ -31,6 +31,8 @@ export interface Toast {
   tone: ToastTone;
   title: string;
   detail?: string;
+  /** "top": a small one-line notice in the top-right corner instead of the bottom stack. */
+  corner?: "top";
 }
 
 export interface LiveAnalysis {
