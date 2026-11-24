@@ -1,5 +1,19 @@
 # Twin AI — Agentic Industrial Digital Twin
 
+> [!IMPORTANT]
+> **This repo is cloned from the actual Twin codebase (Beta version). The VR version (Meta Quest / WebXR) was built during this hackathon.**
+
+### Links
+
+| | |
+|---|---|
+| **Live app** | <https://twin-web-8onw.onrender.com> (click **Launch Factory Demo**) |
+| **VR (Meta Quest)** | <https://twin-web-8onw.onrender.com/twin?view=vr>: open in the Quest browser and press **Enter VR**; on a desktop it opens the WebXR simulator |
+| **Twin Builder** | <https://twin-web-8onw.onrender.com/onboarding> |
+| **Intelligence backend** | <https://twin-backend-a1v2.onrender.com/health> |
+
+Free hosting sleeps when idle: the first visit can take up to a minute to wake the app. See [Deploy on Render](#deploy-on-render) for how AI calls reach the Meta Model API.
+
 > **Your factory. Reimagined before reality.**
 > Create your factory's digital twin. Let AI understand its operations, predict what could go wrong, simulate better decisions, and help you act before losses happen.
 
@@ -54,10 +68,11 @@ Twin builds on our earlier digital-twin engine: the deterministic plant model, s
 14. [Integrations (Meta Model API and open-source adapters)](#integrations)
 15. [Manufacturing intelligence backend & feature domains](#manufacturing-intelligence-backend--feature-domains)
 16. [Deploy (Docker Compose)](#deploy-with-docker-compose)
-17. [Scaling to market standards](#scaling-to-market-standards)
-18. [Testing](#testing)
-19. [Project structure](#project-structure)
-20. [Known limitations](#known-limitations)
+17. [Deploy on Render (and the Meta Model API relay)](#deploy-on-render)
+18. [Scaling to market standards](#scaling-to-market-standards)
+19. [Testing](#testing)
+20. [Project structure](#project-structure)
+21. [Known limitations](#known-limitations)
 
 The full architecture and design document is [docs/architecture.md](docs/architecture.md).
 
@@ -551,6 +566,18 @@ docker compose --profile mqtt --profile storage up --build   # + Mosquitto (MQTT
 `web` and `backend` share the `twin-data` volume, which holds `twin.db`. Both images run as uid 10001 so both can write it. Set `TWIN_DEPLOYMENT=public` on an internet-facing host so admin always needs the passcode.
 
 > **Security note.** There is no per-user login. Anyone who can reach port 3000 can reset the demo or approve plans (simulated only). Put it behind a reverse proxy with authentication for anything beyond a demo.
+
+## Deploy on Render
+
+[`render.yaml`](render.yaml) deploys `twin-web` (the app) and `twin-backend` (the Python backend) as a Render Blueprint. Set `MODEL_API_KEY` on both.
+
+**Meta Model API relay.** Meta returns no models to calls from Render's servers (`GET /v1/models` lists none, so every call gets `404 model_not_found`), while the same key works from other networks. The services therefore send their Meta calls through a small relay on Vercel, [`relay-vercel/`](relay-vercel/), which forwards `/<RELAY_SECRET>/v1/...` to `https://api.meta.ai/v1/...` unchanged. It holds no API key (the caller's own `Authorization` header is passed on), and only paths with the secret are forwarded.
+
+1. Deploy `relay-vercel/` as a Vercel project (Root Directory `relay-vercel`) with the environment variable `RELAY_SECRET`.
+2. On `twin-web` and `twin-backend`, set `META_API_BASE=https://<relay>.vercel.app/<RELAY_SECRET>/v1` and redeploy.
+3. Check it in **Integrations → Meta Model API → Test**. Every Meta call is also logged (`[meta-api]` lines: model, status, request id), and a `model_not_found` error lists the models the key can use from that server.
+
+If AI is unavailable, the Twin Builder falls back to templates and says so in a small notice.
 
 ## Scaling to market standards
 

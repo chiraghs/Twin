@@ -112,10 +112,29 @@ export async function metaPost(path: string, body: unknown, timeoutMs: number): 
     data = { error: { message: text.slice(0, 300) } };
   }
   if (!res.ok) {
-    const err = (data.error ?? {}) as { message?: string; type?: string; param?: string };
-    throw new Error(`${res.status} ${err.message ?? err.type ?? res.statusText}${err.param ? ` (param: ${err.param})` : ""}`.slice(0, 400));
+    const err = (data.error ?? {}) as { message?: string; type?: string; param?: string; code?: string };
+    let msg = `${res.status} ${err.message ?? err.type ?? res.statusText}${err.param ? ` (param: ${err.param})` : ""}`.slice(0, 400);
+    // "Model not found": say which models this key can use from this server, so the fix is obvious.
+    if (err.code === "model_not_found") {
+      const ids = await availableModels();
+      msg += ids === null ? " Could not list this key's models." : ` Models this API key can use from this server: ${ids.length ? ids.join(", ") : "none"}.`;
+      console.error(`[meta-api] GET ${new URL(cfg.baseUrl).host}/models → ${ids === null ? "failed" : ids.join(", ") || "none"}`);
+    }
+    throw new Error(msg);
   }
   return data;
+}
+
+/** The model ids this API key can use (GET /models), or null when the list can't be read. */
+async function availableModels(): Promise<string[] | null> {
+  try {
+    const res = await fetch(`${aiConfig().baseUrl}/models`, { headers: { authorization: `Bearer ${metaApiKey()}` }, signal: AbortSignal.timeout(10000), cache: "no-store" });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { data?: { id?: unknown }[] };
+    return (data.data ?? []).map((m) => m.id).filter((id): id is string => typeof id === "string");
+  } catch {
+    return null;
+  }
 }
 
 const dataUrl = (m: Media) => `data:${m.mimeType};base64,${m.data}`;

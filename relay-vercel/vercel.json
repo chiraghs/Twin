@@ -1,0 +1,4 @@
+{
+  "functions": { "api/relay.mjs": { "maxDuration": 60 } },
+  "rewrites": [{ "source": "/:path*", "destination": "/api/relay?p=:path*" }]
+}
