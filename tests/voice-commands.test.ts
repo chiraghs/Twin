@@ -101,3 +101,9 @@ describe("machine details command", () => {
     expect(parseVoiceCommand("go to A rob zero three").kind).toBe("goto");
   });
 });
+
+describe("production page by voice", () => {
+  it("opens the plant production page", () => {
+    expect(parseVoiceCommand("open production")).toEqual({ kind: "page", href: "/analytics/production", open: true });
+  });
+});

@@ -27,6 +27,7 @@ export const VR_PAGES = [
   {
     section: "Analytics",
     pages: [
+      { href: "/analytics/production", label: "Production" },
       { href: "/analytics/maintenance", label: "Maintenance" },
       { href: "/analytics/supply", label: "Supply Chain" },
       { href: "/analytics/demand", label: "Demand" },
@@ -59,6 +60,7 @@ export function findPage(words: string): string | null {
     [/command|dashboard|home/, "/dashboard"],
     [/agent|ai operation|operations/, "/agents"],
     [/approv/, "/approvals"],
+    [/production|output|oee|throughput/, "/analytics/production"],
     [/what if|simulat/, "/simulator"],
     [/supply|stock|inventor/, "/analytics/supply"],
     [/demand|forecast/, "/analytics/demand"],

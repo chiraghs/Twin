@@ -24,6 +24,7 @@ import {
   ListOrdered,
   Route,
   HardHat,
+  Factory,
 } from "lucide-react";
 
 export const NAV = [
@@ -53,6 +54,7 @@ export const NAV = [
   {
     section: "Analytics",
     items: [
+      { href: "/analytics/production", label: "Production", icon: Factory },
       { href: "/analytics/maintenance", label: "Maintenance", icon: Wrench },
       { href: "/analytics/supply", label: "Supply Chain", icon: PackageSearch },
       { href: "/analytics/demand", label: "Demand", icon: TrendingUp },

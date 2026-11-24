@@ -3,11 +3,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Bar, BarChart, CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { ArrowDownRight, ArrowUpRight, BrainCircuit, FileText, Flame, Network, PowerOff, RotateCcw, Save, Waves, Wrench, Boxes, Truck, Link2 } from "lucide-react";
 import { diagnoseAsset } from "@/domain/anomaly";
 import { healthBand, riskFromStatus } from "@/domain/health";
 import { ASSET_KIND_LABEL } from "@/domain/archetypes";
+import { machineProduction } from "@/domain/production";
 import { readingsFor } from "@/domain/telemetry";
 import type { Asset, FactoryState } from "@/domain/types";
 import type { FaultMode } from "@/domain/commands";
@@ -23,7 +24,7 @@ import { KIND_ICON } from "../ui/asset-kind";
 import { STATUS_COLOR } from "../ui/labels";
 import { CamerasWatching } from "../vision/camera-panel";
 
-export const ASSET_TABS = ["overview", "telemetry", "maintenance", "deps", "docs", "config"] as const;
+export const ASSET_TABS = ["overview", "production", "telemetry", "maintenance", "deps", "docs", "config"] as const;
 export type AssetTab = (typeof ASSET_TABS)[number];
 
 export function AssetPanel({ state, asset, compact = false, onClose, initialTab = "overview" }: { state: FactoryState; asset: Asset; compact?: boolean; onClose?: () => void; initialTab?: AssetTab }) {
@@ -63,6 +64,7 @@ export function AssetPanel({ state, asset, compact = false, onClose, initialTab 
         <div className="overflow-x-auto px-4 pt-3">
           <TabsList className="[&>button]:px-2">
             <TabsTrigger value="overview">Overview</TabsTrigger>
+            <TabsTrigger value="production">Production</TabsTrigger>
             <TabsTrigger value="telemetry">Telemetry</TabsTrigger>
             <TabsTrigger value="maintenance">History</TabsTrigger>
             <TabsTrigger value="deps">Links</TabsTrigger>
@@ -73,6 +75,9 @@ export function AssetPanel({ state, asset, compact = false, onClose, initialTab 
         <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
           <TabsContent value="overview">
             <Overview state={state} asset={asset} compact={compact} />
+          </TabsContent>
+          <TabsContent value="production">
+            <ProductionTab state={state} asset={asset} />
           </TabsContent>
           <TabsContent value="telemetry">
             <TelemetryCharts state={state} asset={asset} />
@@ -191,6 +196,79 @@ function Metric({ label, value, sub, tone, bar }: { label: string; value: string
       <p className={cn("tabular mt-0.5 text-[15px] font-semibold", tone === "critical" ? "text-critical-ink" : tone === "warning" ? "text-warning-ink" : "text-ink")}>{value}</p>
       {sub && <p className="mt-0.5 truncate text-[10.5px] text-muted">{sub}</p>}
       {bar !== undefined && <Meter value={bar} tone={tone ?? "accent"} className="mt-1.5" />}
+    </div>
+  );
+}
+
+const STATE_TONE: Record<string, "healthy" | "warning" | "critical" | "neutral"> = { running: "healthy", idle: "neutral", starved: "warning", blocked: "warning", changeover: "neutral", fault: "critical", maintenance: "neutral" };
+
+/** What this machine produces: its rate and cycle time now, the rejects it caused, and how its line is doing. */
+function ProductionTab({ state, asset }: { state: FactoryState; asset: Asset }) {
+  const p = useMemo(() => machineProduction(state, asset), [state, asset]);
+  const l = p.line;
+  const lossTone = p.cycle.lossPct !== null && p.cycle.lossPct > 25 ? "warning" : undefined;
+  const label = (t: string | number) => fmtSimTime(state, Number(t), false);
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-1.5">
+        {p.state && <Badge tone={STATE_TONE[p.state.state] ?? "neutral"}>{p.state.state}</Badge>}
+        {p.state?.bottleneck && <Badge tone="agent">Bottleneck · sets the line&apos;s pace</Badge>}
+        {p.state && p.state.state !== "running" && <span className="text-[11.5px] text-muted">{p.state.reason}</span>}
+      </div>
+      <div className="grid grid-cols-2 gap-2.5">
+        <div className="col-span-2 rounded-xl border border-accent/30 bg-accent/5 p-2.5">
+          <p className="text-[11px] text-muted">Units produced · last 8 h</p>
+          <p className="tabular mt-0.5 text-[22px] font-semibold text-ink">{fmtInt(p.units)}</p>
+          <p className="mt-0.5 text-[10.5px] text-muted">
+            {p.hourlyUnits.length ? `last full hour ${fmtInt(p.hourlyUnits[p.hourlyUnits.length - 1].units)} · ` : ""}
+            {l ? `${l.name} delivered ${fmtInt(l.good)} good of ${fmtInt(l.target)} target` : "from this machine's throughput readings"}
+          </p>
+        </div>
+        <Metric label="Rate now" value={`${fmtInt(p.throughput)} u/h`} sub={`nameplate ${fmtInt(p.nameplate)} u/h · speed ${p.speedPct}%`} bar={Math.min(100, p.pace * 100)} tone={p.pace < 0.6 && asset.mode === "running" ? "warning" : undefined} />
+        <Metric label="Cycle time" value={p.cycle.actualS === null ? "not producing" : `${fmtNum(p.cycle.actualS, 1)} s`} sub={`ideal ${fmtNum(p.cycle.idealS, 1)} s${p.cycle.lossPct !== null ? ` · ${p.cycle.lossPct > 0 ? "+" : ""}${fmtNum(p.cycle.lossPct, 0)}% loss` : ""}`} tone={lossTone} />
+        <Metric label="Utilization" value={fmtPct(p.utilization, 0)} bar={p.utilization * 100} />
+        <Metric label="Rejects caused (8 h)" value={fmtInt(p.rejectsCaused)} sub={l && l.reject > 0 ? `${fmtPct(p.rejectShare, 0)} of ${l.name}'s rejects` : "none on its line"} tone={p.rejectsCaused > 20 ? "warning" : undefined} />
+      </div>
+      {l && (
+        <>
+          <div className="rounded-xl border border-line bg-shell/60 p-3">
+            <SectionLabel>
+              {l.name} · last 8 h
+            </SectionLabel>
+            <div className="mt-1.5">
+              <KeyValue k="Good units / target" v={`${fmtInt(l.good)} / ${fmtInt(l.target)}${l.target > 0 ? ` (${fmtPct(l.good / l.target, 0)})` : ""}`} />
+              <KeyValue k="Rejects" v={`${fmtInt(l.reject)} · ${fmtNum(l.rejectPct, 2)}%`} />
+              <KeyValue k="OEE (availability × performance × quality)" v={`${fmtPct(l.oee.oee, 1)} = ${fmtPct(l.oee.availability, 0)} × ${fmtPct(l.oee.performance, 0)} × ${fmtPct(l.oee.quality, 1)}`} />
+              <KeyValue k="Line rate now / rated" v={`${fmtInt(l.rate)} / ${fmtInt(l.ratedRate)} u/h`} />
+              <KeyValue k="Bottleneck" v={l.bottleneckId ? (l.bottleneckId === asset.id ? "this machine" : l.bottleneckId) : "none"} />
+              <KeyValue k="Lost time" v={`${fmtNum(l.losses.unplannedDown, 1)} h down · ${fmtNum(l.losses.starved, 1)} h starved · ${fmtNum(l.losses.changeover, 1)} h changeover`} />
+            </div>
+          </div>
+          {p.hourlyUnits.length > 0 && (
+            <div>
+              <p className="mb-1 text-[12px] font-medium text-ink-2">
+                Units produced per hour <span className="text-muted">(dashed: nameplate {fmtInt(p.nameplate)} u/h)</span>
+              </p>
+              <div className="h-36">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={p.hourlyUnits} margin={{ top: 4, right: 6, bottom: 0, left: -18 }}>
+                    <CartesianGrid vertical={false} stroke={GRID} />
+                    <XAxis dataKey="hour" tickFormatter={label} tick={AXIS_TICK} tickLine={false} axisLine={{ stroke: GRID }} minTickGap={24} />
+                    <YAxis tick={AXIS_TICK} tickLine={false} axisLine={false} width={44} domain={[0, Math.ceil(p.nameplate * 1.1)]} />
+                    <Tooltip cursor={{ fill: "var(--color-surface-2)" }} content={<ChartTooltip labelFormatter={label} valueFormatter={(v) => `${fmtInt(v)} units`} />} />
+                    <Bar dataKey="units" name="Units" fill={SERIES[0]} radius={[3, 3, 0, 0]} maxBarSize={22} isAnimationActive={false} />
+                    <ReferenceLine y={p.nameplate} stroke="#f59e0b" strokeDasharray="4 3" strokeOpacity={0.8} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+              <p className="mt-1 text-[10.5px] text-muted">From this machine&apos;s throughput readings (every 10 min), complete hours only.</p>
+            </div>
+          )}
+        </>
+      )}
+      <Button size="sm" variant="secondary" asChild>
+        <Link href="/analytics/production">Plant production</Link>
+      </Button>
     </div>
   );
 }
