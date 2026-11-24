@@ -28,7 +28,9 @@ export type VoiceCommand =
   | { kind: "seated"; on: boolean }
   | { kind: "perf"; on: boolean }
   /** The website panel in VR: open it (at a page, when named) or close it. */
-  | { kind: "page"; href: string | null; open: boolean }
+  | { kind: "page"; href: string | null; open: boolean; newWindow?: true }
+  /** Lay the open website windows out side by side in front of you. */
+  | { kind: "arrange" }
   /** The selected machine's panel (as in the 3D view) in the website panel, at a tab. */
   | { kind: "details"; tab: DetailsTab }
   | { kind: "ask"; text: string };
@@ -166,6 +168,18 @@ export function parseVoiceCommand(transcript: string): VoiceCommand {
   if (/^(?:quest )?perf(?:ormance)?(?: mode)? off$/.test(t)) return { kind: "perf", on: false };
   if (/^(show|hide|turn on|turn off)( the)? (product )?flow( on| off)?$|^flow (on|off)$/.test(t)) return { kind: "flow", on: !/\b(hide|off)\b/.test(t) };
   // The website panel: "open the website", "open approvals", "show the AI operations page", "close the website".
+  // Several website windows: "open fleet traffic in a new window", "new window", "side by side".
+  if (/^(?:arrange|tile|line up|organi[sz]e)(?: the| my)? (?:windows|web ?sites|sites|pages)$|^(?:put (?:them|the windows) )?side by side$/.test(t)) return { kind: "arrange" };
+  if (/^(?:open |show )?(?:a )?(?:new|another|second|third) (?:window|web ?site window|site window)$/.test(t)) return { kind: "page", href: null, open: true, newWindow: true };
+  const nw = t.match(/^(.+?) in (?:a )?(?:new|another|second|third|separate) window$/);
+  if (nw) {
+    const inner = parseVoiceCommand(nw[1]);
+    if (inner.kind === "page" && inner.open) return { ...inner, newWindow: true };
+    if (inner.kind === "ask" || inner.kind === "goto") {
+      const href = findPage(nw[1].replace(/^(?:open|show|go to|switch to|take me to)(?: me)?(?: the)? /, "").replace(/ (?:page|screen|tab)$/, ""));
+      if (href) return { kind: "page", href, open: true, newWindow: true };
+    }
+  }
   if (/^(?:close|hide|exit)(?: the)? (?:web ?site|site|browser|web page|webpage|pages?)$/.test(t)) return { kind: "page", href: null, open: false };
   if (/^(?:open|show)(?: the)? (?:web ?site|site|browser|web page|webpage|pages?|full (?:web ?)?site)$/.test(t)) return { kind: "page", href: null, open: true };
   const pg = t.match(/^(?:open|show|go to|switch to|take me to)(?: me)?(?: the)? (.+?) (?:page|screen|tab)$/) ?? t.match(/^open(?: the)? (.+)$/);
@@ -184,4 +198,4 @@ export function parseVoiceCommand(transcript: string): VoiceCommand {
 
 /** What to say for "help". */
 export const VOICE_HELP =
-  "Say: go to A-ROB-03, show heat or show vibration, where is the bottleneck, what if A-ROB-03 runs at 80 percent, replay the last 6 hours, table view, open approvals (or open the website), details or telemetry (for the selected machine), recenter, seated mode, performance mode, acknowledge alarm, speed down, trip, restore, mute, or exit VR. Anything else goes to the copilot.";
+  "Say: go to A-ROB-03, show heat or show vibration, where is the bottleneck, what if A-ROB-03 runs at 80 percent, replay the last 6 hours, table view, open approvals (or open the website), open fleet traffic in a new window, side by side, details or telemetry (for the selected machine), recenter, seated mode, performance mode, acknowledge alarm, speed down, trip, restore, mute, or exit VR. Anything else goes to the copilot.";

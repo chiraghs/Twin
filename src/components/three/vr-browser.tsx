@@ -20,6 +20,8 @@ const TH = TB + VH;
 const S = 1.5;
 /** The window's size in metres. */
 const PW = 1.9;
+/** The website window's width in metres (for laying several out side by side). */
+export const VR_WINDOW_WIDTH = PW;
 const PH = PW * (TH / TW);
 
 const C = {
@@ -35,7 +37,7 @@ const C = {
   active: "rgba(76,141,255,0.16)",
 };
 
-type Action = { kind: "nav"; href: string } | { kind: "back" } | { kind: "reload" } | { kind: "up" } | { kind: "down" } | { kind: "screen" } | { kind: "close" };
+type Action = { kind: "nav"; href: string } | { kind: "back" } | { kind: "reload" } | { kind: "up" } | { kind: "down" } | { kind: "screen" } | { kind: "close" } | { kind: "new" } | { kind: "arrange" };
 interface Hit {
   id: string;
   x: number;
@@ -58,6 +60,11 @@ export function VRBrowser({
   onOpenOnScreen,
   position,
   onMove,
+  focused = false,
+  onFocus,
+  onNewWindow,
+  onArrange,
+  refreshMs = 2500,
 }: {
   path: string;
   onPath: (p: string) => void;
@@ -66,6 +73,15 @@ export function VRBrowser({
   position: [number, number, number];
   /** Dragging the bar under the window: where its centre should go (world space), and your eyes; `done` on release. */
   onMove?: (center: THREE.Vector3, eye: THREE.Vector3, done: boolean) => void;
+  /** Several windows open: this is the one you used last (voice and the nav bar act on it); outlined. */
+  focused?: boolean;
+  onFocus?: () => void;
+  /** "+ Window" in the top bar: open another window beside this one. */
+  onNewWindow?: () => void;
+  /** "Side by side" in the top bar (with more than one window). */
+  onArrange?: () => void;
+  /** How often the live page is redrawn: windows you are not using refresh less, to keep the headset smooth. */
+  refreshMs?: number;
 }) {
   const frameRef = useRef<HTMLIFrameElement | null>(null);
   const pageCanvas = useMemo(() => {
@@ -216,6 +232,16 @@ export function VRBrowser({
     list.push({ id: sid, x: rx - 46 - sw, y: 9, w: sw, h: 34, action: { kind: "screen" } });
     iconBtn("down", rx - 56 - sw - 36, "▾", { kind: "down" });
     iconBtn("up", rx - 98 - sw - 36, "▴", { kind: "up" });
+    // Several windows: open another, lay them out side by side.
+    let lx = rx - 98 - sw - 36 - 12;
+    if (onNewWindow) {
+      lx -= 104;
+      iconBtn("new", lx, "+ Window", { kind: "new" }, 104);
+    }
+    if (onArrange) {
+      lx -= 128 + 8;
+      iconBtn("arrange", lx, "Side by side", { kind: "arrange" }, 128);
+    }
 
     // The page, and a scrollbar when it is longer than the window.
     g.drawImage(pageCanvas, SB, TB, VW, VH);
@@ -244,17 +270,17 @@ export function VRBrowser({
     }
     g.restore();
     // Frame
-    g.strokeStyle = THEME.lineStrong;
-    g.lineWidth = 2;
+    g.strokeStyle = focused ? C.accent : THEME.lineStrong;
+    g.lineWidth = focused ? 5 : 2;
     g.beginPath();
-    g.roundRect(1, 1, TW - 2, TH - 2, 18);
+    g.roundRect(focused ? 2.5 : 1, focused ? 2.5 : 1, TW - (focused ? 5 : 2), TH - (focused ? 5 : 2), 18);
     g.stroke();
     hits.current = list;
     tex.needsUpdate = true;
   };
   const composeRef = useRef(compose);
   composeRef.current = compose;
-  useEffect(() => composeRef.current(), []);
+  useEffect(() => composeRef.current(), [focused, !!onNewWindow, !!onArrange]);
 
   const refresh = async () => {
     const win = frameRef.current?.contentWindow;
@@ -300,16 +326,19 @@ export function VRBrowser({
     f.src = path;
     document.body.appendChild(f);
     frameRef.current = f;
-    // Live telemetry: keep the picture current.
-    const id = window.setInterval(() => void refreshRef.current(), 2500);
     return () => {
-      window.clearInterval(id);
       f.remove();
       frameRef.current = null;
     };
     // The iframe is created once; later paths navigate it (below).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Live telemetry: keep the picture current (each window on its own timer, so redraws don't pile up).
+  useEffect(() => {
+    const id = window.setInterval(() => void refreshRef.current(), refreshMs);
+    return () => window.clearInterval(id);
+  }, [refreshMs]);
 
   // Navigation from the sidebar (or voice): client-side when the page is up, so it's instant.
   useEffect(() => {
@@ -349,6 +378,10 @@ export function VRBrowser({
         return onOpenOnScreen(shownPath.current);
       case "close":
         return onClose();
+      case "new":
+        return onNewWindow?.();
+      case "arrange":
+        return onArrange?.();
     }
   };
 
@@ -383,6 +416,7 @@ export function VRBrowser({
     <group position={position} ref={root}>
       {onMove && <MoveBar root={root} onMove={onMove} />}
       <mesh
+        onPointerDown={() => onFocus?.()}
         onClick={(e) => {
           e.stopPropagation();
           const p = at(e);

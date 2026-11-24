@@ -51,7 +51,10 @@ interface Deps {
     seated?: (on: boolean) => void;
     perf?: (on: boolean) => void;
     /** The website panel: open at a page (or the last one), or close (null). */
-    page?: (href: string | null, open: boolean) => void;
+    /** Opens (or closes) the website window; `newWindow` adds another beside it. False when no more fit. */
+    page?: (href: string | null, open: boolean, newWindow?: boolean) => boolean | void;
+    /** Lays the website windows out side by side. */
+    arrange?: () => number;
     /** Opens the selected machine's panel at a tab; false when no machine is selected. */
     details?: (tab: DetailsTab) => boolean;
   };
@@ -200,8 +203,14 @@ export function useVrVoice({ state, index, selected, goTo, exitXR, inXR, overlay
           }
           case "page": {
             if (!ref.current.overlays.page) return say("The website panel is only in the headset.");
-            ref.current.overlays.page(cmd.href, cmd.open);
+            if (ref.current.overlays.page(cmd.href, cmd.open, cmd.newWindow) === false) return say("Three windows are open: close one first.");
+            if (cmd.newWindow) return say(`${cmd.href ? pageLabel(cmd.href) : "A new window"}, beside the others. Drag the bar under a window to move it.`);
             return say(!cmd.open ? "Closed the website." : cmd.href ? `Opening ${pageLabel(cmd.href)}. Point and pinch to click.` : "Here is the website. Pick a page on the left.");
+          }
+          case "arrange": {
+            const n = ref.current.overlays.arrange?.();
+            if (n === undefined) return say("Website windows are only in the headset.");
+            return say(n > 1 ? `${n} windows, side by side.` : n === 1 ? "One window open. Say open a page in a new window to add another." : "No website window is open.");
           }
           case "details": {
             const shown = ref.current.overlays.details?.(cmd.tab);

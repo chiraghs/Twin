@@ -31,7 +31,7 @@ import { FIND_KIND_LABEL, findEntries, findIndex, standPoint, type FindEntry, ty
 import { GripTalk, useVrVoice, VoiceDock, VoiceRig3D } from "./vr-voice";
 import { FpsProbe, HandMenu, QuestHand, SimulatorMouse, TablePlacer, useFps, type HandMenuItem } from "./vr-hands";
 import { Board, Button3D, textTexture, THEME, type BoardLine, type Spark } from "./vr-ui";
-import { VRBrowser, VRNavBar } from "./vr-browser";
+import { VR_WINDOW_WIDTH, VRBrowser, VRNavBar } from "./vr-browser";
 import { AlarmSounds, FlowOverlay, HEAT_LABEL, HEAT_LEGEND, HEAT_METRICS, heatCells, HeatOverlay, replayEvents, replayFrame, replayStart, replayStatus } from "./vr-overlays";
 import { useView3d } from "@/client/view3d";
 
@@ -497,6 +497,87 @@ function PrepareVRDemoDialog({
  * to select it, and its live signals appear on a board above it. Machines with alarms always show
  * a board. On localhost without a headset, a Meta Quest 3 is emulated for development.
  */
+/** At most this many website windows at once: each runs a live copy of the site. */
+const MAX_SITES = 3;
+/** With several windows open they are drawn a little smaller, so they fit side by side. */
+const MULTI_SITE_SCALE = 0.78;
+type SitePose = { pos: [number, number, number]; yaw: number };
+/** A website window: its page and where you carried it (null: its slot in front of you). */
+type SiteWin = { id: number; path: string; pose: SitePose | null };
+
+/** One website window with its nav bar above it, carried by the bar under it. */
+function SiteWindow({
+  path,
+  pose,
+  scale,
+  focused,
+  navBar,
+  onFocus,
+  onPath,
+  onPose,
+  onClose,
+  onOpenOnScreen,
+  onNewWindow,
+  onArrange,
+}: {
+  path: string;
+  pose: SitePose;
+  scale: number;
+  focused: boolean;
+  navBar: boolean;
+  onFocus: () => void;
+  onPath: (p: string) => void;
+  onPose: (pose: SitePose) => void;
+  onClose: () => void;
+  onOpenOnScreen: (p: string) => void;
+  onNewWindow?: () => void;
+  onArrange?: () => void;
+}) {
+  const ref = useRef<THREE.Group>(null);
+  const move = (center: THREE.Vector3, eye: THREE.Vector3, done: boolean) => {
+    const g = ref.current;
+    if (!g?.parent) return;
+    onFocus();
+    const local = g.parent.worldToLocal(center.clone());
+    const e = g.parent.worldToLocal(eye.clone());
+    // Keep it off the floor and within reach of your eyes; turn it to face you.
+    local.y = Math.max(0.5, Math.min(e.y + 1.2, local.y));
+    const yaw = Math.atan2(e.x - local.x, e.z - local.z);
+    g.position.copy(local);
+    g.rotation.set(0, yaw, 0);
+    if (done) onPose({ pos: local.toArray() as [number, number, number], yaw });
+  };
+  return (
+    <group ref={ref} position={pose.pos} rotation-y={pose.yaw} scale={scale}>
+      {navBar && (
+        <VRNavBar
+          current={path}
+          onOpen={(href) => {
+            onFocus();
+            if (href) onPath(href);
+          }}
+          position={[0, 0.6, 0.03]}
+          rotationX={-0.15}
+        />
+      )}
+      <VRBrowser
+        path={path}
+        onPath={onPath}
+        onClose={onClose}
+        onOpenOnScreen={onOpenOnScreen}
+        position={[0, 0, 0]}
+        onMove={move}
+        focused={focused}
+        onFocus={onFocus}
+        onNewWindow={onNewWindow}
+        onArrange={onArrange}
+        // The window you are using stays live every 2.5 s; the others every 5 s.
+        refreshMs={focused || !onArrange ? 2500 : 5000}
+      />
+    </group>
+  );
+}
+
 export function TwinVR({ state }: { state: FactoryState }) {
   const pal = usePalette();
   // On localhost without WebXR, emulate a Meta Quest 3 (stereo, no synthetic room) for development.
@@ -544,38 +625,74 @@ export function TwinVR({ state }: { state: FactoryState }) {
   /** A selected machine shows one "Controls" button; its speed / trip / what-if panel opens on demand. */
   const [controlsOpen, setControlsOpen] = useState(false);
   useEffect(() => setControlsOpen(false), [selected]);
-  /** The website panel in the headset: the page it shows, or null when closed. */
+  /**
+   * The website windows in the headset (up to three, e.g. Visual Quality on the left and Fleet
+   * Traffic on the right). `site` is the page of the one you used last: the nav bar, voice and
+   * Details act on it.
+   */
   const router = useRouter();
-  const [site, setSite] = useState<string | null>(null);
+  const [wins, setWins] = useState<SiteWin[]>([]);
+  const winsRef = useRef(wins);
+  winsRef.current = wins;
+  const [focusId, setFocusId] = useState<number | null>(null);
+  const nextWin = useRef(1);
+  const focusedWin = wins.find((w) => w.id === focusId) ?? wins[wins.length - 1] ?? null;
+  const site = focusedWin?.path ?? null;
   const lastSite = useRef("/dashboard");
-  /** Where you carried the website window (in the origin's space), or null for its usual place in front of you. */
-  const [sitePose, setSitePose] = useState<{ pos: [number, number, number]; yaw: number } | null>(null);
-  const siteGroup = useRef<THREE.Group>(null);
-  const siteHome = (): [number, number, number] => (tableMode ? [0.35, seated ? 1.35 : 1.72, -1.4] : [0, seated ? 1.32 : 1.72, -1.25]);
-  const moveSite = (center: THREE.Vector3, eye: THREE.Vector3, done: boolean) => {
-    const g = siteGroup.current;
-    if (!g?.parent) return;
-    const local = g.parent.worldToLocal(center.clone());
-    const e = g.parent.worldToLocal(eye.clone());
-    // Keep it off the floor and within reach of your eyes; turn it to face you.
-    local.y = Math.max(0.5, Math.min(e.y + 1.2, local.y));
-    const yaw = Math.atan2(e.x - local.x, e.z - local.z);
-    g.position.copy(local);
-    g.rotation.set(0, yaw, 0);
-    if (done) setSitePose({ pos: local.toArray() as [number, number, number], yaw });
+  const setWinPath = (id: number, p: string) => setWins((ws) => ws.map((w) => (w.id === id && w.path !== p ? { ...w, path: p } : w)));
+  const addWin = (p: string) => {
+    if (winsRef.current.length >= MAX_SITES) return false;
+    const id = nextWin.current++;
+    winsRef.current = [...winsRef.current, { id, path: p, pose: null }];
+    setWins(winsRef.current);
+    setFocusId(id);
+    return true;
   };
-  const openSite = (href: string | null, open = true) => {
-    if (!open) return setSite(null);
+  /** Shows a page in the window you used last (opening one if none is open); null closes them all. */
+  const setSite = (p: string | null) => {
+    if (p === null) return void setWins([]);
+    const ws = winsRef.current;
+    const f = ws.find((w) => w.id === focusId) ?? ws[ws.length - 1];
+    if (f) setWinPath(f.id, p);
+    else addWin(p);
+  };
+  const closeWin = (id: number) => setWins((ws) => ws.filter((w) => w.id !== id));
+  /** Puts every window back in its slot: one in front of you, several side by side. */
+  const arrangeSites = () => {
+    setWins((ws) => ws.map((w) => (w.pose ? { ...w, pose: null } : w)));
+    return winsRef.current.length;
+  };
+  const siteHome = (): [number, number, number] => (tableMode ? [0.35, seated ? 1.35 : 1.72, -1.4] : [0, seated ? 1.32 : 1.72, -1.25]);
+  /** Window i of n: in front of you, or on an arc around you, each turned to face you. */
+  const slotPose = (i: number, n: number): SitePose => {
+    const h = siteHome();
+    if (n <= 1) return { pos: h, yaw: 0 };
+    // Centred straight ahead (the single window sits a little right in table view, clear of the controls).
+    const r = -h[2] + 0.3;
+    const mid = 0;
+    const step = 2 * Math.asin(Math.min(0.95, ((VR_WINDOW_WIDTH * MULTI_SITE_SCALE) / 2 + 0.06) / r));
+    const a = mid + (i - (n - 1) / 2) * step;
+    return { pos: [r * Math.sin(a), h[1], -r * Math.cos(a)], yaw: -a };
+  };
+  const openSite = (href: string | null, open = true, inNewWindow = false) => {
+    if (!open) return void setSite(null);
     const p = href ?? lastSite.current;
     lastSite.current = p;
-    setSite(p);
     setFindOpen(false);
+    if (inNewWindow && winsRef.current.length) return addWin(p);
+    setSite(p);
+    return true;
   };
   /** The selected machine's panel (the one the 3D view shows beside a clicked machine) in the website window. */
   const assetPath = (id: string, tab?: string) => `/assets/${encodeURIComponent(id)}${tab && tab !== "overview" ? `?tab=${tab}` : ""}`;
   const openDetails = (tab?: string) => {
     if (!selected) return false;
-    openSite(assetPath(selected, tab));
+    // Reuse the window already showing a machine; otherwise the one you used last.
+    const shown = winsRef.current.find((w) => assetOfPath(w.path));
+    if (shown) {
+      setWinPath(shown.id, assetPath(selected, tab));
+      setFocusId(shown.id);
+    } else openSite(assetPath(selected, tab));
     return true;
   };
   const assetOfPath = (p: string | null) => {
@@ -584,9 +701,8 @@ export function TwinVR({ state }: { state: FactoryState }) {
   };
   // While a machine's panel is open, selecting another machine shows that one's panel.
   useEffect(() => {
-    if (!selected || !site) return;
-    const shown = assetOfPath(site);
-    if (shown && shown !== selected) openSite(assetPath(selected));
+    if (!selected) return;
+    setWins((ws) => (ws.some((w) => assetOfPath(w.path) && assetOfPath(w.path) !== selected) ? ws.map((w) => (assetOfPath(w.path) && assetOfPath(w.path) !== selected ? { ...w, path: assetPath(selected) } : w)) : ws));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected]);
   /** Leaves the headset on the full page in the browser. */
@@ -695,7 +811,7 @@ export function TwinVR({ state }: { state: FactoryState }) {
     setTable({ at, yaw: Math.atan2(-fwd.x, -fwd.z) });
   };
   const recenter = () => {
-    setSitePose(null);
+    arrangeSites();
     if (tableMode) return xrMode === "immersive-ar" ? setTable(null) : placeVRTable();
     originRef.current?.position.set(front.x, 0, front.z);
     originRef.current?.rotation.set(0, 0, 0);
@@ -704,7 +820,7 @@ export function TwinVR({ state }: { state: FactoryState }) {
     }
   };
   const toggleTable = () => {
-    setSitePose(null);
+    arrangeSites();
     if (xrMode === "immersive-ar") return setTable(null); // re-place on a surface
     if (tableVR) {
       setTableVR(false);
@@ -768,9 +884,24 @@ export function TwinVR({ state }: { state: FactoryState }) {
       seated: (on) => setSeated(on),
       perf: (on) => setQuestPerf(on),
       page: openSite,
+      arrange: arrangeSites,
       details: openDetails,
     },
   });
+
+  useEffect(() => {
+    if (typeof window !== "undefined" && isLocalhost()) {
+      (window as unknown as Record<string, unknown>).__twinVrRecord = {
+        selectAsset: (id: string) => {
+          setSelected(id);
+          const e = index.find((x) => x.assetId === id);
+          if (e) goTo(e);
+        },
+        openDetails: (tab?: string) => openDetails(tab),
+        closeSite: () => setSite(null),
+      };
+    }
+  }, [index, selected, inXR]);
   // The copilot's show_in_3d (spoken or typed) moves you here instead of switching to the 3D tab.
   const request = useView3d((s) => s.request);
   const consume = useView3d((s) => s.consume);
@@ -938,7 +1069,7 @@ export function TwinVR({ state }: { state: FactoryState }) {
     { key: "seated", label: seated ? "Seated" : "Standing", color: "#8b5cf6", active: seated, onPress: () => setSeated(!seated) },
     { key: "perf", label: questPerf ? "Perf: 72fps" : "Quality", color: "#eab308", active: questPerf, onPress: () => setQuestPerf(!questPerf) },
     { key: "find", label: findOpen ? "Hide find" : "Find", color: "#4c8dff", active: findOpen, onPress: () => setFindOpen(!findOpen) },
-    { key: "site", label: site ? "Hide site" : "Website", color: "#0ea5e9", active: !!site, onPress: () => openSite(null, !site) },
+    { key: "site", label: wins.length > 1 ? "Hide sites" : site ? "Hide site" : "Website", color: "#0ea5e9", active: !!site, onPress: () => openSite(null, !site) },
     { key: "heat", label: heat ? HEAT_LABEL[heat] : "Heat", color: "#f97316", active: !!heat, onPress: () => setHeat(nextHeat(heat)) },
     { key: "flow", label: flowOn ? "Flow on" : "Flow off", color: "#22c55e", active: flowOn, onPress: () => setFlowOn(!flowOn) },
     { key: "replay", label: replay ? "Live" : "Replay 6 h", color: "#38bdf8", active: !!replay, onPress: () => startReplay(replay ? null : 6) },
@@ -1002,26 +1133,31 @@ export function TwinVR({ state }: { state: FactoryState }) {
                 legend={heat ? `${HEAT_LABEL[heat]} · ${HEAT_LEGEND[heat]}` : undefined}
               />
             )}
-            {/* The website window with its nav bar above it: one group, carried by the bar under the window. */}
-            {inXR && site && (
-              <group ref={siteGroup} position={sitePose?.pos ?? siteHome()} rotation-y={sitePose?.yaw ?? 0}>
-                {!placing && <VRNavBar current={site} onOpen={(href) => openSite(href)} position={[0, 0.6, 0.03]} rotationX={-0.15} />}
-              <VRBrowser
-                path={site}
-                onPath={(p) => {
-                  lastSite.current = p;
-                  setSite(p);
-                  // A machine's page (e.g. picked on its Links tab) selects that machine in the plant.
-                  const id = assetOfPath(p);
-                  if (id && id !== selected && state.assets.some((a) => a.id === id)) setSelected(id);
-                }}
-                onClose={() => setSite(null)}
-                onOpenOnScreen={openOnScreen}
-                position={[0, 0, 0]}
-                onMove={moveSite}
-              />
-              </group>
-            )}
+            {/* The website windows, each with its nav bar above it: one group, carried by the bar under the window. */}
+            {inXR &&
+              wins.map((w, i) => (
+                <SiteWindow
+                  key={w.id}
+                  path={w.path}
+                  pose={w.pose ?? slotPose(i, wins.length)}
+                  scale={wins.length > 1 ? MULTI_SITE_SCALE : 1}
+                  focused={wins.length > 1 && w.id === focusedWin?.id}
+                  navBar={!placing}
+                  onFocus={() => w.id !== focusId && setFocusId(w.id)}
+                  onPath={(p) => {
+                    lastSite.current = p;
+                    setWinPath(w.id, p);
+                    // A machine's page (e.g. picked on its Links tab) selects that machine in the plant.
+                    const id = assetOfPath(p);
+                    if (id && id !== selected && state.assets.some((a) => a.id === id)) setSelected(id);
+                  }}
+                  onPose={(pose) => setWins((ws) => ws.map((x) => (x.id === w.id ? { ...x, pose } : x)))}
+                  onClose={() => closeWin(w.id)}
+                  onOpenOnScreen={openOnScreen}
+                  onNewWindow={wins.length < MAX_SITES ? () => addWin(w.path) : undefined}
+                  onArrange={wins.length > 1 ? arrangeSites : undefined}
+                />
+              ))}
             {inXR && replay && frame && <Board lines={replayLines(state, frame.hour)} accent="#38bdf8" position={[0.8, 1.5, -1.2]} width={0.7} />}
             {inXR && recordingOn && (
               <group position={[0, 1.76, -1.2]}>
@@ -1103,12 +1239,12 @@ export function TwinVR({ state }: { state: FactoryState }) {
                       <>
                         <ControlPanel state={state} assetId={selected} position={[0, 0, 0]} onWhatIf={(c) => runWhatIf(selected, c)} />
                         <Button3D label="Hide controls" color="#64748b" width={0.5} position={[-0.27, -0.62, 0]} onPress={() => setControlsOpen(false)} />
-                        <Button3D label="Details" color="#0ea5e9" width={0.5} active={assetOfPath(site) === selected} position={[0.27, -0.62, 0]} onPress={() => openDetails()} />
+                        <Button3D label="Details" color="#0ea5e9" width={0.5} active={wins.some((w) => assetOfPath(w.path) === selected)} position={[0.27, -0.62, 0]} onPress={() => openDetails()} />
                       </>
                     ) : (
                       <>
                         <Button3D label="Controls" color="#4c8dff" width={0.42} position={[-0.23, -0.1, 0]} onPress={() => setControlsOpen(true)} />
-                        <Button3D label="Details" color="#0ea5e9" width={0.42} active={assetOfPath(site) === selected} position={[0.23, -0.1, 0]} onPress={() => openDetails()} />
+                        <Button3D label="Details" color="#0ea5e9" width={0.42} active={wins.some((w) => assetOfPath(w.path) === selected)} position={[0.23, -0.1, 0]} onPress={() => openDetails()} />
                       </>
                     )}
                   </group>

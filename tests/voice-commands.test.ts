@@ -106,4 +106,14 @@ describe("production page by voice", () => {
   it("opens the plant production page", () => {
     expect(parseVoiceCommand("open production")).toEqual({ kind: "page", href: "/analytics/production", open: true });
   });
+
+  it("opens pages in more website windows and lays them out side by side", () => {
+    expect(parseVoiceCommand("open fleet traffic in a new window")).toEqual({ kind: "page", href: "/fleet-traffic", open: true, newWindow: true });
+    expect(parseVoiceCommand("open visual quality in another window")).toEqual({ kind: "page", href: "/quality", open: true, newWindow: true });
+    expect(parseVoiceCommand("show the approvals page in a new window")).toEqual({ kind: "page", href: "/approvals", open: true, newWindow: true });
+    expect(parseVoiceCommand("new window")).toEqual({ kind: "page", href: null, open: true, newWindow: true });
+    expect(parseVoiceCommand("side by side")).toEqual({ kind: "arrange" });
+    expect(parseVoiceCommand("arrange the windows")).toEqual({ kind: "arrange" });
+    expect(parseVoiceCommand("open approvals")).toEqual({ kind: "page", href: "/approvals", open: true });
+  });
 });
