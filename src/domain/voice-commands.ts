@@ -29,7 +29,27 @@ export type VoiceCommand =
   | { kind: "perf"; on: boolean }
   /** The website panel in VR: open it (at a page, when named) or close it. */
   | { kind: "page"; href: string | null; open: boolean }
+  /** The selected machine's panel (as in the 3D view) in the website panel, at a tab. */
+  | { kind: "details"; tab: DetailsTab }
   | { kind: "ask"; text: string };
+
+/** The machine panel's tabs (see AssetPanel). */
+export type DetailsTab = "overview" | "telemetry" | "maintenance" | "deps" | "docs";
+const DETAILS_WORDS: Record<string, DetailsTab> = {
+  details: "overview",
+  "machine details": "overview",
+  "asset details": "overview",
+  telemetry: "telemetry",
+  readings: "telemetry",
+  trends: "telemetry",
+  history: "maintenance",
+  "maintenance history": "maintenance",
+  links: "deps",
+  dependencies: "deps",
+  docs: "docs",
+  documents: "docs",
+  manuals: "docs",
+};
 
 /** What the VR heatmap colours machines by. */
 export type HeatMetric = "temperature" | "vibration" | "energy" | "health" | "life" | "state" | "noise";
@@ -105,6 +125,12 @@ export function parseVoiceCommand(transcript: string): VoiceCommand {
   if (/^(?:recenter|re-center|reset (?:view|camera|pose)|center (?:view|camera)|center)$/.test(t)) return { kind: "recenter" };
   if (/^(trip|stop|shut ?down|emergency stop)\b/.test(t)) return { kind: "trip", target: targetOf(t) };
   if (/^(restore|restart|start|reset|resume)\b/.test(t)) return { kind: "restore", target: targetOf(t) };
+  // The selected machine's panel: "details", "show telemetry", "open the history tab".
+  const dt = t.match(/^(?:show|open|see|short|shoe|so)?(?: me)?(?: the)? ?(?:machine'?s? |its )?(details|machine details|asset details|telemetry|readings|trends|history|maintenance history|links|dependencies|docs|documents|manuals)(?: tab| panel| page)?$/);
+  if (dt) return { kind: "details", tab: DETAILS_WORDS[dt[1]] };
+  // Distinctive words survive a misheard verb ("shorter telemetry", "so details").
+  const dt2 = t.match(/^[a-z]+ (?:the )?(telemetry|details|machine details)$/);
+  if (dt2) return { kind: "details", tab: DETAILS_WORDS[dt2[1]] };
   // Heatmap: "show heat", "heatmap vibration", "show energy heat", "heat off".
   if (/\b(heat ?maps?|heat|overlay|colou?r by)\b/.test(t) && !/\bwhat if\b/.test(t)) {
     if (/\b(off|hide|clear|remove|stop|none)\b/.test(t)) return { kind: "heat", metric: null };
@@ -158,4 +184,4 @@ export function parseVoiceCommand(transcript: string): VoiceCommand {
 
 /** What to say for "help". */
 export const VOICE_HELP =
-  "Say: go to A-ROB-03, show heat or show vibration, where is the bottleneck, what if A-ROB-03 runs at 80 percent, replay the last 6 hours, table view, open approvals (or open the website), recenter, seated mode, performance mode, acknowledge alarm, speed down, trip, restore, mute, or exit VR. Anything else goes to the copilot.";
+  "Say: go to A-ROB-03, show heat or show vibration, where is the bottleneck, what if A-ROB-03 runs at 80 percent, replay the last 6 hours, table view, open approvals (or open the website), details or telemetry (for the selected machine), recenter, seated mode, performance mode, acknowledge alarm, speed down, trip, restore, mute, or exit VR. Anything else goes to the copilot.";

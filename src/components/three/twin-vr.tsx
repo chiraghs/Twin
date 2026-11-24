@@ -109,6 +109,52 @@ function ControlPanel({ state, assetId, position, onWhatIf }: { state: FactorySt
   );
 }
 
+const walkDir = new THREE.Vector3();
+const walkSide = new THREE.Vector3();
+/**
+ * W A S D or the arrow keys walk in the headset simulator, always. (The simulator's own keys only
+ * drive the thumbstick while the mouse is locked to its view, so walking stopped after any click.)
+ * Shift is left to the simulator's own free movement, and a locked mouse to its thumbstick keys.
+ */
+function SimKeyWalk({ origin }: { origin: RefObject<THREE.Group | null> }) {
+  const keys = useRef(new Set<string>());
+  const camera = useThree((s) => s.camera);
+  useEffect(() => {
+    const WALK = ["KeyW", "KeyA", "KeyS", "KeyD", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"];
+    const typing = (e: KeyboardEvent) => e.target instanceof HTMLElement && e.target.closest("input, textarea, select, [contenteditable]") !== null;
+    const kd = (e: KeyboardEvent) => {
+      if (!WALK.includes(e.code) || typing(e) || e.metaKey || e.ctrlKey || e.altKey) return;
+      keys.current.add(e.code);
+      if (e.code.startsWith("Arrow")) e.preventDefault();
+    };
+    const ku = (e: KeyboardEvent) => keys.current.delete(e.code);
+    const clear = () => keys.current.clear();
+    window.addEventListener("keydown", kd);
+    window.addEventListener("keyup", ku);
+    window.addEventListener("blur", clear);
+    return () => {
+      window.removeEventListener("keydown", kd);
+      window.removeEventListener("keyup", ku);
+      window.removeEventListener("blur", clear);
+    };
+  }, []);
+  useFrame((_, dt) => {
+    const k = keys.current;
+    const o = origin.current;
+    if (!o || !k.size || document.pointerLockElement) return;
+    const f = (k.has("KeyW") || k.has("ArrowUp") ? 1 : 0) - (k.has("KeyS") || k.has("ArrowDown") ? 1 : 0);
+    const r = (k.has("KeyD") || k.has("ArrowRight") ? 1 : 0) - (k.has("KeyA") || k.has("ArrowLeft") ? 1 : 0);
+    if (!f && !r) return;
+    camera.getWorldDirection(walkDir).setY(0);
+    if (walkDir.lengthSq() < 1e-6) return;
+    walkDir.normalize();
+    walkSide.set(-walkDir.z, 0, walkDir.x);
+    const step = 2.2 * Math.min(dt, 0.1);
+    o.position.addScaledVector(walkDir, f * step).addScaledVector(walkSide, r * step);
+  });
+  return null;
+}
+
 /** Thumbsticks in the headset: left to move, right to snap-turn. */
 function Locomotion({ origin }: { origin: RefObject<THREE.Group | null> }) {
   useXRControllerLocomotion(origin, { speed: 2.2 }, { type: "snap", degrees: 45 });
@@ -502,6 +548,22 @@ export function TwinVR({ state }: { state: FactoryState }) {
   const router = useRouter();
   const [site, setSite] = useState<string | null>(null);
   const lastSite = useRef("/dashboard");
+  /** Where you carried the website window (in the origin's space), or null for its usual place in front of you. */
+  const [sitePose, setSitePose] = useState<{ pos: [number, number, number]; yaw: number } | null>(null);
+  const siteGroup = useRef<THREE.Group>(null);
+  const siteHome = (): [number, number, number] => (tableMode ? [0.35, seated ? 1.35 : 1.72, -1.4] : [0, seated ? 1.32 : 1.72, -1.25]);
+  const moveSite = (center: THREE.Vector3, eye: THREE.Vector3, done: boolean) => {
+    const g = siteGroup.current;
+    if (!g?.parent) return;
+    const local = g.parent.worldToLocal(center.clone());
+    const e = g.parent.worldToLocal(eye.clone());
+    // Keep it off the floor and within reach of your eyes; turn it to face you.
+    local.y = Math.max(0.5, Math.min(e.y + 1.2, local.y));
+    const yaw = Math.atan2(e.x - local.x, e.z - local.z);
+    g.position.copy(local);
+    g.rotation.set(0, yaw, 0);
+    if (done) setSitePose({ pos: local.toArray() as [number, number, number], yaw });
+  };
   const openSite = (href: string | null, open = true) => {
     if (!open) return setSite(null);
     const p = href ?? lastSite.current;
@@ -509,6 +571,24 @@ export function TwinVR({ state }: { state: FactoryState }) {
     setSite(p);
     setFindOpen(false);
   };
+  /** The selected machine's panel (the one the 3D view shows beside a clicked machine) in the website window. */
+  const assetPath = (id: string, tab?: string) => `/assets/${encodeURIComponent(id)}${tab && tab !== "overview" ? `?tab=${tab}` : ""}`;
+  const openDetails = (tab?: string) => {
+    if (!selected) return false;
+    openSite(assetPath(selected, tab));
+    return true;
+  };
+  const assetOfPath = (p: string | null) => {
+    const m = p?.match(/^\/assets\/([^/?#]+)/);
+    return m ? decodeURIComponent(m[1]) : null;
+  };
+  // While a machine's panel is open, selecting another machine shows that one's panel.
+  useEffect(() => {
+    if (!selected || !site) return;
+    const shown = assetOfPath(site);
+    if (shown && shown !== selected) openSite(assetPath(selected));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected]);
   /** Leaves the headset on the full page in the browser. */
   const openOnScreen = (p: string) => {
     setSite(null);
@@ -615,6 +695,7 @@ export function TwinVR({ state }: { state: FactoryState }) {
     setTable({ at, yaw: Math.atan2(-fwd.x, -fwd.z) });
   };
   const recenter = () => {
+    setSitePose(null);
     if (tableMode) return xrMode === "immersive-ar" ? setTable(null) : placeVRTable();
     originRef.current?.position.set(front.x, 0, front.z);
     originRef.current?.rotation.set(0, 0, 0);
@@ -623,6 +704,7 @@ export function TwinVR({ state }: { state: FactoryState }) {
     }
   };
   const toggleTable = () => {
+    setSitePose(null);
     if (xrMode === "immersive-ar") return setTable(null); // re-place on a surface
     if (tableVR) {
       setTableVR(false);
@@ -686,6 +768,7 @@ export function TwinVR({ state }: { state: FactoryState }) {
       seated: (on) => setSeated(on),
       perf: (on) => setQuestPerf(on),
       page: openSite,
+      details: openDetails,
     },
   });
   // The copilot's show_in_3d (spoken or typed) moves you here instead of switching to the 3D tab.
@@ -908,28 +991,36 @@ export function TwinVR({ state }: { state: FactoryState }) {
             )}
             {inXR && findOpen && <FindMenu index={index} onPick={goTo} onClose={() => setFindOpen(false)} />}
             {/* The website's nav bar: low in your view like the headset's own system bar (above the window while a page is open). */}
-            {inXR && !placing && (
+            {inXR && !placing && !site && (
               <VRNavBar
                 current={site}
                 onOpen={(href) => openSite(href)}
                 // Table view: hung above and behind the table, so it never lies across the plant you look down at.
-                position={site ? (tableMode ? [0.35, seated ? 1.95 : 2.32, -1.38] : [0, seated ? 1.92 : 2.32, -1.22]) : tableMode ? [0, 1.5, -1.35] : [0, 1.1, -0.85]}
-                rotationX={site ? -0.15 : tableMode ? 0.08 : 0.55}
-                aboveEyes={site ? undefined : tableMode ? -0.18 : -0.5}
-                legend={heat && !site ? `${HEAT_LABEL[heat]} · ${HEAT_LEGEND[heat]}` : undefined}
+                position={tableMode ? [0, 1.5, -1.35] : [0, 1.1, -0.85]}
+                rotationX={tableMode ? 0.08 : 0.55}
+                aboveEyes={tableMode ? -0.18 : -0.5}
+                legend={heat ? `${HEAT_LABEL[heat]} · ${HEAT_LEGEND[heat]}` : undefined}
               />
             )}
+            {/* The website window with its nav bar above it: one group, carried by the bar under the window. */}
             {inXR && site && (
+              <group ref={siteGroup} position={sitePose?.pos ?? siteHome()} rotation-y={sitePose?.yaw ?? 0}>
+                {!placing && <VRNavBar current={site} onOpen={(href) => openSite(href)} position={[0, 0.6, 0.03]} rotationX={-0.15} />}
               <VRBrowser
                 path={site}
                 onPath={(p) => {
                   lastSite.current = p;
                   setSite(p);
+                  // A machine's page (e.g. picked on its Links tab) selects that machine in the plant.
+                  const id = assetOfPath(p);
+                  if (id && id !== selected && state.assets.some((a) => a.id === id)) setSelected(id);
                 }}
                 onClose={() => setSite(null)}
                 onOpenOnScreen={openOnScreen}
-                position={tableMode ? [0.35, seated ? 1.35 : 1.72, -1.4] : [0, seated ? 1.32 : 1.72, -1.25]}
+                position={[0, 0, 0]}
+                onMove={moveSite}
               />
+              </group>
             )}
             {inXR && replay && frame && <Board lines={replayLines(state, frame.hour)} accent="#38bdf8" position={[0.8, 1.5, -1.2]} width={0.7} />}
             {inXR && recordingOn && (
@@ -951,6 +1042,7 @@ export function TwinVR({ state }: { state: FactoryState }) {
             {inXR && <HandMenu items={handItems} label={tableMode ? "Tabletop" : heat ? HEAT_LABEL[heat] : "Twin"} />}
           </XROrigin>
           {!tableMode && <Locomotion origin={originRef} />}
+          {!tableMode && simulating && inXR && <SimKeyWalk origin={originRef} />}
           {/* Teleport: push a thumbstick forward (or pinch-and-hold with hands), aim at the floor, release. */}
           {!tableMode && (
             <TeleportTarget onTeleport={(p) => originRef.current?.position.set(p.x, 0, p.z)}>
@@ -1010,10 +1102,14 @@ export function TwinVR({ state }: { state: FactoryState }) {
                     {controlsOpen ? (
                       <>
                         <ControlPanel state={state} assetId={selected} position={[0, 0, 0]} onWhatIf={(c) => runWhatIf(selected, c)} />
-                        <Button3D label="Hide controls" color="#64748b" width={0.5} position={[0, -0.62, 0]} onPress={() => setControlsOpen(false)} />
+                        <Button3D label="Hide controls" color="#64748b" width={0.5} position={[-0.27, -0.62, 0]} onPress={() => setControlsOpen(false)} />
+                        <Button3D label="Details" color="#0ea5e9" width={0.5} active={assetOfPath(site) === selected} position={[0.27, -0.62, 0]} onPress={() => openDetails()} />
                       </>
                     ) : (
-                      <Button3D label="Controls" color="#4c8dff" width={0.42} position={[0, -0.1, 0]} onPress={() => setControlsOpen(true)} />
+                      <>
+                        <Button3D label="Controls" color="#4c8dff" width={0.42} position={[-0.23, -0.1, 0]} onPress={() => setControlsOpen(true)} />
+                        <Button3D label="Details" color="#0ea5e9" width={0.42} active={assetOfPath(site) === selected} position={[0.23, -0.1, 0]} onPress={() => openDetails()} />
+                      </>
                     )}
                   </group>
                 )}

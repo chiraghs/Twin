@@ -51,7 +51,22 @@ interface Hit {
  * copy of the page runs in a hidden iframe; what it shows is drawn into the window, and your
  * pointer's clicks and scrolls are passed to it.
  */
-export function VRBrowser({ path, onPath, onClose, onOpenOnScreen, position }: { path: string; onPath: (p: string) => void; onClose: () => void; onOpenOnScreen: (p: string) => void; position: [number, number, number] }) {
+export function VRBrowser({
+  path,
+  onPath,
+  onClose,
+  onOpenOnScreen,
+  position,
+  onMove,
+}: {
+  path: string;
+  onPath: (p: string) => void;
+  onClose: () => void;
+  onOpenOnScreen: (p: string) => void;
+  position: [number, number, number];
+  /** Dragging the bar under the window: where its centre should go (world space), and your eyes; `done` on release. */
+  onMove?: (center: THREE.Vector3, eye: THREE.Vector3, done: boolean) => void;
+}) {
   const frameRef = useRef<HTMLIFrameElement | null>(null);
   const pageCanvas = useMemo(() => {
     const c = document.createElement("canvas");
@@ -348,6 +363,7 @@ export function VRBrowser({ path, onPath, onClose, onOpenOnScreen, position }: {
     setTick((n) => n + 1);
   };
 
+  const root = useRef<THREE.Group>(null);
   // Right thumbstick scrolls the page while you point at it.
   const right = useXRInputSourceState("controller", "right");
   const hovering = useRef(false);
@@ -364,7 +380,8 @@ export function VRBrowser({ path, onPath, onClose, onOpenOnScreen, position }: {
   });
 
   return (
-    <group position={position}>
+    <group position={position} ref={root}>
+      {onMove && <MoveBar root={root} onMove={onMove} />}
       <mesh
         onClick={(e) => {
           e.stopPropagation();
@@ -420,6 +437,71 @@ export function VRBrowser({ path, onPath, onClose, onOpenOnScreen, position }: {
       <mesh ref={cursor} visible={false}>
         <ringGeometry args={[0.005, 0.009, 24]} />
         <meshBasicMaterial color="#38bdf8" toneMapped={false} depthTest={false} />
+      </mesh>
+    </group>
+  );
+}
+
+const grabTmp = { center: new THREE.Vector3(), point: new THREE.Vector3(), eye: new THREE.Vector3() };
+
+/**
+ * The bar under the window, as on Quest: point at it, pinch or pull the trigger and hold, move to
+ * carry the window anywhere (it keeps its distance along your ray and turns to face you), release
+ * to place it.
+ */
+function MoveBar({ root, onMove }: { root: React.RefObject<THREE.Group | null>; onMove: (center: THREE.Vector3, eye: THREE.Vector3, done: boolean) => void }) {
+  const camera = useThree((st) => st.camera);
+  const [hover, setHover] = useState(false);
+  const [held, setHeld] = useState(false);
+  const grab = useRef<{ dist: number; offset: THREE.Vector3 } | null>(null);
+  const follow = (e: ThreeEvent<PointerEvent>, done: boolean) => {
+    const g = grab.current;
+    const r = (e as unknown as { ray?: THREE.Ray }).ray;
+    if (!g || !r) return;
+    grabTmp.point.copy(r.origin).addScaledVector(r.direction, g.dist);
+    grabTmp.center.copy(grabTmp.point).add(g.offset);
+    camera.getWorldPosition(grabTmp.eye);
+    onMove(grabTmp.center, grabTmp.eye, done);
+  };
+  return (
+    <group position={[0, -PH / 2 - 0.05, 0.002]}>
+      <mesh>
+        <planeGeometry args={[0.3, 0.024]} />
+        <meshBasicMaterial color={held || hover ? "#ffffff" : "#94a3b8"} transparent opacity={held ? 1 : hover ? 0.95 : 0.6} toneMapped={false} />
+      </mesh>
+      {/* A larger, invisible target than the bar itself, so it is easy to hit. */}
+      <mesh
+        onPointerOver={(e) => {
+          e.stopPropagation();
+          setHover(true);
+        }}
+        onPointerOut={() => setHover(false)}
+        onPointerDown={(e) => {
+          e.stopPropagation();
+          const g = root.current;
+          if (!g) return;
+          const t = e.target as unknown as { setPointerCapture?: (id: number) => void };
+          t.setPointerCapture?.(e.pointerId);
+          g.getWorldPosition(grabTmp.center);
+          grab.current = { dist: e.distance, offset: grabTmp.center.clone().sub(e.point) };
+          setHeld(true);
+        }}
+        onPointerMove={(e) => {
+          if (!grab.current) return;
+          e.stopPropagation();
+          follow(e, false);
+        }}
+        onPointerUp={(e) => {
+          if (!grab.current) return;
+          e.stopPropagation();
+          follow(e, true);
+          grab.current = null;
+          setHeld(false);
+          (e.target as unknown as { releasePointerCapture?: (id: number) => void }).releasePointerCapture?.(e.pointerId);
+        }}
+      >
+        <planeGeometry args={[0.5, 0.09]} />
+        <meshBasicMaterial transparent opacity={0} depthWrite={false} />
       </mesh>
     </group>
   );

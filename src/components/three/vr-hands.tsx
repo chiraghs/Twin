@@ -426,30 +426,62 @@ export function SimulatorMouse({ enabled }: { enabled: boolean }) {
         }
         return null;
       };
-      const event = (ev: MouseEvent, hit: THREE.Intersection) => ({ ...hit, eventObject: hit.object, nativeEvent: ev, deltaY: (ev as WheelEvent).deltaY ?? 0, stopPropagation: () => undefined, pointerId: 1, pointerType: "mouse" });
+      // Pointer capture, as XR pointers have it: a handle being dragged keeps getting the moves.
+      let captured: THREE.Object3D | null = null;
+      const event = (ev: MouseEvent, hit: THREE.Intersection | null, obj: THREE.Object3D | null) => ({
+        ...hit,
+        eventObject: hit?.object ?? obj,
+        target: Object.assign(Object.create(obj ?? null), { setPointerCapture: () => void (captured = obj), releasePointerCapture: () => void (captured = null) }),
+        ray: ray.ray.clone(),
+        nativeEvent: ev,
+        deltaY: (ev as WheelEvent).deltaY ?? 0,
+        stopPropagation: () => undefined,
+        pointerId: 1,
+        pointerType: "mouse",
+      });
+      const aim = (ev: MouseEvent) => {
+        const rc = from.getBoundingClientRect();
+        ndc.set(((ev.clientX - rc.left) / rc.width) * 2 - 1, -((ev.clientY - rc.top) / rc.height) * 2 + 1);
+        ray.setFromCamera(ndc, camera());
+      };
       let hovered: THREE.Object3D | null = null;
       const move = (ev: PointerEvent) => {
+        if (captured) {
+          aim(ev);
+          handlersOf(captured)?.onPointerMove?.(event(ev, null, captured));
+          return;
+        }
         const p = pick(ev);
         if (hovered && hovered !== p?.target) handlersOf(hovered)?.onPointerOut?.({ nativeEvent: ev, stopPropagation: () => undefined });
-        if (p && hovered !== p.target) p.h.onPointerOver?.(event(ev, p.hit));
+        if (p && hovered !== p.target) p.h.onPointerOver?.(event(ev, p.hit, p.target));
         hovered = p?.target ?? null;
-        p?.h.onPointerMove?.(event(ev, p.hit));
+        p?.h.onPointerMove?.(event(ev, p.hit, p.target));
       };
       const down = (ev: PointerEvent) => {
         const p = pick(ev);
-        p?.h.onPointerDown?.(event(ev, p.hit));
+        p?.h.onPointerDown?.(event(ev, p.hit, p.target));
       };
+      let dragged = false;
       const up = (ev: PointerEvent) => {
+        if (captured) {
+          const c = captured;
+          aim(ev);
+          handlersOf(c)?.onPointerUp?.(event(ev, null, c));
+          captured = null;
+          dragged = true; // the click that follows a drag is not a click
+          return;
+        }
         const p = pick(ev);
-        p?.h.onPointerUp?.(event(ev, p.hit));
+        p?.h.onPointerUp?.(event(ev, p.hit, p.target));
       };
       const click = (ev: MouseEvent) => {
+        if (dragged) return void (dragged = false);
         const p = pick(ev);
-        p?.h.onClick?.(event(ev, p.hit));
+        p?.h.onClick?.(event(ev, p.hit, p.target));
       };
       const wheel = (ev: WheelEvent) => {
         const p = pick(ev);
-        p?.h.onWheel?.(event(ev, p.hit));
+        p?.h.onWheel?.(event(ev, p.hit, p.target));
       };
       from.addEventListener("pointermove", move);
       from.addEventListener("pointerdown", down);

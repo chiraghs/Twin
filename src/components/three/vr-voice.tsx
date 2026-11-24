@@ -16,7 +16,7 @@ import { activeAlarms } from "@/domain/live";
 import type { FactoryState } from "@/domain/types";
 import { bottlenecks, machineStates, throughputExplanation } from "@/domain/process-signals";
 import type { QuickWhatIf } from "@/domain/quick-what-if";
-import { parseVoiceCommand, VOICE_HELP, type HeatMetric } from "@/domain/voice-commands";
+import { parseVoiceCommand, VOICE_HELP, type DetailsTab, type HeatMetric } from "@/domain/voice-commands";
 import { cn } from "@/lib/cn";
 import { HEAT_LABEL } from "./vr-overlays";
 import { controlTexture, FONT, THEME } from "./vr-ui";
@@ -52,6 +52,8 @@ interface Deps {
     perf?: (on: boolean) => void;
     /** The website panel: open at a page (or the last one), or close (null). */
     page?: (href: string | null, open: boolean) => void;
+    /** Opens the selected machine's panel at a tab; false when no machine is selected. */
+    details?: (tab: DetailsTab) => boolean;
   };
 }
 
@@ -200,6 +202,12 @@ export function useVrVoice({ state, index, selected, goTo, exitXR, inXR, overlay
             if (!ref.current.overlays.page) return say("The website panel is only in the headset.");
             ref.current.overlays.page(cmd.href, cmd.open);
             return say(!cmd.open ? "Closed the website." : cmd.href ? `Opening ${pageLabel(cmd.href)}. Point and pinch to click.` : "Here is the website. Pick a page on the left.");
+          }
+          case "details": {
+            const shown = ref.current.overlays.details?.(cmd.tab);
+            if (shown === undefined) return say("Machine details are shown in the headset.");
+            if (!shown) return say("Select a machine first: point at it and pinch, or say go to and its name.");
+            return say(`${cmd.tab === "overview" ? "Details" : cmd.tab === "maintenance" ? "History" : cmd.tab === "deps" ? "Links" : cmd.tab === "docs" ? "Documents" : "Telemetry"} for ${ref.current.selected}. Pinch a tab to switch.`);
           }
           case "recenter": {
             ref.current.overlays.recenter?.();

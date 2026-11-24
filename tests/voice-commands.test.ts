@@ -82,3 +82,22 @@ describe("overlay, bottleneck, what-if and replay commands", () => {
     expect(parseVoiceCommand("show vibration").kind).toBe("heat");
   });
 });
+
+describe("machine details command", () => {
+  it("opens the selected machine's panel at a tab", () => {
+    expect(parseVoiceCommand("details")).toEqual({ kind: "details", tab: "overview" });
+    expect(parseVoiceCommand("show me the machine details")).toEqual({ kind: "details", tab: "overview" });
+    expect(parseVoiceCommand("show telemetry")).toEqual({ kind: "details", tab: "telemetry" });
+    expect(parseVoiceCommand("open the history tab")).toEqual({ kind: "details", tab: "maintenance" });
+    expect(parseVoiceCommand("links")).toEqual({ kind: "details", tab: "deps" });
+    expect(parseVoiceCommand("show docs")).toEqual({ kind: "details", tab: "docs" });
+    expect(parseVoiceCommand("short telemetry.")).toEqual({ kind: "details", tab: "telemetry" });
+    expect(parseVoiceCommand("shorter telemetry.")).toEqual({ kind: "details", tab: "telemetry" });
+  });
+  it("leaves other commands alone", () => {
+    expect(parseVoiceCommand("show vibration").kind).toBe("heat");
+    expect(parseVoiceCommand("open approvals").kind).toBe("page");
+    expect(parseVoiceCommand("open maintenance").kind).not.toBe("details");
+    expect(parseVoiceCommand("go to A rob zero three").kind).toBe("goto");
+  });
+});

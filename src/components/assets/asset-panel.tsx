@@ -23,10 +23,13 @@ import { KIND_ICON } from "../ui/asset-kind";
 import { STATUS_COLOR } from "../ui/labels";
 import { CamerasWatching } from "../vision/camera-panel";
 
-export function AssetPanel({ state, asset, compact = false, onClose }: { state: FactoryState; asset: Asset; compact?: boolean; onClose?: () => void }) {
+export const ASSET_TABS = ["overview", "telemetry", "maintenance", "deps", "docs", "config"] as const;
+export type AssetTab = (typeof ASSET_TABS)[number];
+
+export function AssetPanel({ state, asset, compact = false, onClose, initialTab = "overview" }: { state: FactoryState; asset: Asset; compact?: boolean; onClose?: () => void; initialTab?: AssetTab }) {
   const Icon = KIND_ICON[asset.kind];
   const line = state.lines.find((l) => l.id === asset.lineId);
-  const [tab, setTab] = useState("overview");
+  const [tab, setTab] = useState<string>(initialTab);
   return (
     <div className="flex h-full flex-col">
       <div className="border-b border-line px-4 pt-4 pb-3">

@@ -163,6 +163,13 @@ export function clickPage(win: Window, x: number, y: number): Element | null {
   el.dispatchEvent(new W.PointerEvent("pointerup", ptr));
   el.dispatchEvent(new W.MouseEvent("mouseup", base));
   el.dispatchEvent(new W.MouseEvent("click", base));
+  // Keep the keyboard with the headset view (walking keys, push-to-talk) unless you clicked into a
+  // text field: focus inside the hidden page's frame would swallow every key.
+  const active = doc.activeElement as HTMLElement | null;
+  if (!active?.closest?.("input, textarea, select, [contenteditable]")) {
+    active?.blur?.();
+    window.focus();
+  }
   return el;
 }
 
