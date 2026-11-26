@@ -1,17 +1,43 @@
 name: Keep Render Service Awake
 
+# Render's free plan sleeps a service after 15 min without traffic. GitHub runs scheduled workflows
+# late or not at all when they are frequent (a */10 schedule ran only every 8-15 h), so one run stays
+# up and pings every 5 min for ~5 h 45 min, then starts the next run itself. The schedule is only a
+# backup that restarts the chain if it ever breaks.
 on:
   schedule:
-    # Runs every 10 minutes (cron format: minute hour day-of-month month day-of-week)
-    - cron: '*/10 * * * *'
-  workflow_dispatch: # Allows manual trigger from GitHub Actions tab
+    - cron: "17 */3 * * *"
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+# One pinger at a time: a scheduled run that fires while one is active waits instead of doubling up.
+concurrency:
+  group: keep-alive
+  cancel-in-progress: false
 
 jobs:
   ping-render:
-    name: Ping Render App
+    name: Ping Render services
     runs-on: ubuntu-latest
+    timeout-minutes: 355
     steps:
-      - name: Send keep-alive HTTP GET request
+      - name: Ping every 5 minutes
         run: |
-          STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 60 https://twin-web-8onw.onrender.com/)
-          echo "HTTP response status: $STATUS at $(date -u)"
+          URLS="https://twin-web-8onw.onrender.com/ https://twin-backend-a1v2.onrender.com/health"
+          END=$(( $(date +%s) + 345 * 60 ))
+          while [ "$(date +%s)" -lt "$END" ]; do
+            for u in $URLS; do
+              out=$(curl -s -o /dev/null -w "%{http_code} %{time_total}s" --max-time 90 "$u" || echo "failed")
+              echo "$(date -u +%H:%M:%S) $u -> $out"
+            done
+            sleep 300
+          done
+
+      - name: Start the next run
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run keep-alive.yml --repo "${{ github.repository }}" --ref "${{ github.ref_name }}"
