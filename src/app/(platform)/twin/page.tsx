@@ -128,7 +128,7 @@ function TwinStudio() {
           <button onClick={() => switchView("3d")} aria-pressed={view === "3d"} className={cn("flex h-7 items-center gap-1.5 rounded-md px-2.5 text-[12.5px]", view === "3d" ? "bg-surface-3 text-ink" : "text-muted hover:text-ink")}>
             <Rotate3d className="h-3.5 w-3.5" /> 3D
           </button>
-          <button onClick={() => switchView("vr")} aria-pressed={view === "vr"} className={cn("flex h-7 items-center gap-1.5 rounded-md px-2.5 text-[12.5px]", view === "vr" ? "bg-surface-3 text-ink" : "text-muted hover:text-ink")}>
+          <button data-hint="vr-tab" onClick={() => switchView("vr")} aria-pressed={view === "vr"} className={cn("flex h-7 items-center gap-1.5 rounded-md px-2.5 text-[12.5px]", view === "vr" ? "bg-surface-3 text-ink" : "text-muted hover:text-ink")}>
             <Glasses className="h-3.5 w-3.5" /> VR
           </button>
         </div>

@@ -14,6 +14,7 @@ import { Button, TooltipProvider } from "@/components/ui/primitives";
 import { CameraDialogHost } from "@/components/vision/camera-panel";
 import { CopilotPanel } from "@/components/copilot/copilot-panel";
 import { RecordingOverlay } from "@/components/shell/recording-overlay";
+import { VrHint } from "@/components/shell/vr-hint";
 
 export default function PlatformLayout({ children }: { children: React.ReactNode }) {
   const [navOpen, setNavOpen] = useState(false);
@@ -34,6 +35,7 @@ export default function PlatformLayout({ children }: { children: React.ReactNode
     <TooltipProvider>
       <div data-vr-hide className="contents">
         <RecordingOverlay />
+        <VrHint />
       </div>
       <div className="min-h-screen">
         {/* Inside the VR browser panel the headset shows its own navigation (data-vr-hide). */}

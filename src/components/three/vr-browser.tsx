@@ -285,6 +285,8 @@ export function VRBrowser({
   const refresh = async () => {
     const win = frameRef.current?.contentWindow;
     if (!win?.document?.body) return;
+    // Until the first page arrives the frame holds about:blank: don't draw it or take it for a navigation.
+    if (win.location.protocol === "about:") return;
     if (busy.current) {
       again.current = true;
       return;
@@ -292,9 +294,9 @@ export function VRBrowser({
     busy.current = true;
     try {
       await capturePage(win, pageCanvas, VW, VH);
-      const p = win.location.pathname;
+      const p = win.location.pathname + win.location.search;
       scroll.current = { top: win.scrollY, height: win.document.documentElement.scrollHeight };
-      if (p !== shownPath.current) {
+      if (p.startsWith("/") && p !== shownPath.current) {
         shownPath.current = p;
         onPath(p);
       }
@@ -322,7 +324,7 @@ export function VRBrowser({
     f.setAttribute("aria-hidden", "true");
     f.tabIndex = -1;
     Object.assign(f.style, { position: "fixed", left: "0", top: "0", width: `${VW}px`, height: `${VH}px`, border: "0", opacity: "0", pointerEvents: "none", zIndex: "-1" });
-    f.addEventListener("load", () => soon(400, 1200, 2500));
+    f.addEventListener("load", () => soon(80, 300, 800, 2000));
     f.src = path;
     document.body.appendChild(f);
     frameRef.current = f;
@@ -347,9 +349,42 @@ export function VRBrowser({
     shownPath.current = path;
     status.current = `Opening ${pageLabel(path)}…`;
     composeRef.current();
+
+    // 1. Direct link on page
     const link = Array.from(win.document.querySelectorAll<HTMLAnchorElement>("a[href]")).find((a) => a.getAttribute("href") === path);
-    if (link) link.click();
-    else win.location.assign(path);
+    if (link) {
+      link.click();
+      win.scrollTo(0, 0);
+      soon(80, 300, 900);
+      return;
+    }
+
+    // 2. Same page with tab query (e.g. /assets/A-ROB-03?tab=production)
+    const tabMatch = path.match(/[?&]tab=([^&#]+)/);
+    const tabName = tabMatch ? tabMatch[1] : null;
+    const currentBase = win.location.pathname;
+    const targetBase = path.split("?")[0];
+    if (tabName && currentBase === targetBase) {
+      const tabBtn = Array.from(win.document.querySelectorAll<HTMLButtonElement>("button")).find(
+        (b) => b.getAttribute("aria-controls")?.endsWith(`-content-${tabName}`) || b.id?.endsWith(`-trigger-${tabName}`)
+      );
+      if (tabBtn) {
+        const winAny = win as unknown as Window & { PointerEvent: typeof PointerEvent; MouseEvent: typeof MouseEvent };
+        const opts = { bubbles: true, cancelable: true, pointerId: 1, button: 0, isPrimary: true };
+        tabBtn.dispatchEvent(new winAny.PointerEvent("pointerdown", opts));
+        tabBtn.dispatchEvent(new winAny.MouseEvent("mousedown", opts));
+        tabBtn.dispatchEvent(new winAny.PointerEvent("pointerup", opts));
+        tabBtn.dispatchEvent(new winAny.MouseEvent("mouseup", opts));
+        tabBtn.click();
+        win.history.pushState(null, "", path);
+        status.current = "";
+        soon(60, 200, 600);
+        return;
+      }
+    }
+
+    // 3. Otherwise navigate the window
+    win.location.assign(path);
     win.scrollTo(0, 0);
     soon(300, 900, 1800);
   }, [path]);

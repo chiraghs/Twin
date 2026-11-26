@@ -43,6 +43,7 @@ export function Sidebar({ open, onNavigate }: { open: boolean; onNavigate: () =>
                     <Link
                       href={item.href}
                       onClick={onNavigate}
+                      data-hint={item.href === "/twin" ? "twin-nav" : undefined}
                       aria-current={active ? "page" : undefined}
                       className={cn(
                         "group flex h-9 items-center gap-2.5 rounded-lg px-2.5 text-[13px] font-medium transition-colors",

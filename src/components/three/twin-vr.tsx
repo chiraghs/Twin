@@ -897,11 +897,28 @@ export function TwinVR({ state }: { state: FactoryState }) {
           const e = index.find((x) => x.assetId === id);
           if (e) goTo(e);
         },
-        openDetails: (tab?: string) => openDetails(tab),
+        openDetails: (tab?: string, assetId?: string) => {
+          const id = assetId || selected || "A-ROB-03";
+          setSelected(id);
+          const p = assetPath(id, tab);
+          const shown = winsRef.current.find((w) => assetOfPath(w.path));
+          if (shown) {
+            setWinPath(shown.id, p);
+            setFocusId(shown.id);
+          } else addWin(p);
+          return true;
+        },
         closeSite: () => setSite(null),
+        toggleTable: () => toggleTable(),
+        isTable: () => tableMode,
+        addWindow: (href: string) => addWin(href),
+        setWindowPath: (id: number, href: string) => setWinPath(id, href),
+        arrangeSites: () => arrangeSites(),
+        getWins: () => winsRef.current,
+        focusWindow: (id: number) => setFocusId(id),
       };
     }
-  }, [index, selected, inXR]);
+  }, [index, selected, inXR, tableMode, wins]);
   // The copilot's show_in_3d (spoken or typed) moves you here instead of switching to the 3D tab.
   const request = useView3d((s) => s.request);
   const consume = useView3d((s) => s.consume);
