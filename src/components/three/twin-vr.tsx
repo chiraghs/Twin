@@ -322,9 +322,9 @@ const noRegister = () => undefined;
 const SIM_KEY = "twin-vr-simulate";
 const isLocalhost = () => typeof window !== "undefined" && ["localhost", "127.0.0.1"].includes(window.location.hostname);
 /**
- * Development only (localhost): desktop Chrome reports WebXR but has no headset, so the Quest
- * emulator stands aside. With "Simulate Quest headset" on, that empty runtime is hidden for this
- * tab so the emulator can install. Never active on a real deployment.
+ * No headset? "Try it without a headset" emulates a Meta Quest 3 in this tab (on any site, so
+ * visitors and judges can try VR on a laptop). Desktop Chrome reports WebXR but has no headset, so
+ * that empty runtime is hidden for this tab and the emulator installs in its place. Opt-in per tab.
  */
 /** Simulator only: the emulated head's starting pitch (radians, up is positive). Recordings can override it per page load. */
 function simPitch(): number {
@@ -336,7 +336,6 @@ function simPitch(): number {
 }
 
 function simulationOn(): boolean {
-  if (!isLocalhost()) return false;
   try {
     if (sessionStorage.getItem(SIM_KEY) !== "1") return false;
   } catch {
@@ -598,6 +597,8 @@ export function TwinVR({ state }: { state: FactoryState }) {
   const store = useMemo(() => createXRStore({
         emulate: {
           type: "metaQuest3",
+          // Installed when you choose to simulate (on any host); otherwise only on localhost, as by default.
+          inject: simulating ? true : { hostname: "localhost" },
           // Development only: a virtual office stands in for your room in passthrough (tabletop placement).
           syntheticEnvironment: "office_small",
           // One full-size view on screen (a headset renders both eyes itself).
@@ -1501,10 +1502,10 @@ export function TwinVR({ state }: { state: FactoryState }) {
       )}
       {support && !headset && !inXR && (
         <p className="absolute bottom-16 left-1/2 -translate-x-1/2 rounded-md bg-surface/90 px-3 py-1 text-center text-[11.5px] text-muted">
-          No headset found, so you&apos;re walking on screen. To enter VR, open this page in Meta Quest Browser.
+          No headset found, so you&apos;re walking on screen. To enter VR, open this page in Meta Quest Browser, or simulate a Quest (bottom right).
         </p>
       )}
-      {isLocalhost() && !inXR && (support !== null || simulating) && (!headset || simulating) && (
+      {!inXR && (support !== null || simulating) && (!headset || simulating) && (
         <button
           onClick={() => {
             try {
@@ -1518,7 +1519,7 @@ export function TwinVR({ state }: { state: FactoryState }) {
           className="absolute right-3 bottom-4 h-8 rounded-lg border border-dashed border-line bg-surface/90 px-3 text-[11.5px] text-muted hover:text-ink"
           data-testid="simulate-headset"
         >
-          {simulating ? "Stop simulating the headset" : "Simulate Quest headset (localhost)"}
+          {simulating ? "Stop simulating the headset" : "No headset? Simulate a Meta Quest 3"}
         </button>
       )}
       <PrepareVRDemoDialog
